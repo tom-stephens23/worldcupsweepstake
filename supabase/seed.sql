@@ -105,8 +105,15 @@ join teams aw on aw.name = s.away
 where m.stage = 'group' and m.group_label = s.grp
   and m.team_a_id = ha.id and m.team_b_id = aw.id;
 
--- 5. Default Golden Boot / Golden Glove countries from the mock stats.
-update settings set
+-- 5. Default Golden Boot / Golden Glove countries on the shared tournament row.
+update tournament set
   top_scorer_team_id  = (select id from teams where name = 'France' limit 1),  -- Mbappé
   clean_sheet_team_id = (select id from teams where name = 'Spain'  limit 1)   -- Unai Simón
 where id = 1;
+
+-- 6. A default pool so there's somewhere to land (/s/beenzee). Create more
+--    in-app. Set the real create-passcode separately (not committed):
+--      update app_config set create_passcode = '...' where id = 1;
+insert into sweepstakes (slug, name, admin_passcode, charity_name)
+values ('beenzee', 'BeeNZee', 'worldcup2026', 'Charity')
+on conflict (slug) do nothing;

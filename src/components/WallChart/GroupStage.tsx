@@ -1,11 +1,12 @@
+import { useApp } from '../../hooks/useApp'
 import { useSweepstake } from '../../hooks/useSweepstake'
 import { Flag } from '../ui'
-import type { Match, Team } from '../../lib/types'
+import type { Match } from '../../lib/types'
 import type { StandingRow } from '../../lib/standings'
 
-function OwnerDot({ team }: { team?: Team }) {
-  const { playerById } = useSweepstake()
-  const owner = playerById(team?.assigned_player_id)
+function OwnerDot({ teamId }: { teamId?: string | null }) {
+  const { ownerOf } = useSweepstake()
+  const owner = ownerOf(teamId)
   return (
     <span
       className="inline-block h-2 w-2 shrink-0 rounded-full"
@@ -16,7 +17,8 @@ function OwnerDot({ team }: { team?: Team }) {
 }
 
 function ScoreCell({ match, side }: { match: Match; side: 'a' | 'b' }) {
-  const { adminUnlocked, setMatchScore } = useSweepstake()
+  const { adminUnlocked } = useSweepstake()
+  const { setMatchScore } = useApp()
   const value = side === 'a' ? match.score_a : match.score_b
   if (!adminUnlocked) {
     return <span className="w-5 text-center font-bold tabular-nums">{value ?? '–'}</span>
@@ -38,7 +40,8 @@ function ScoreCell({ match, side }: { match: Match; side: 'a' | 'b' }) {
 }
 
 function StandingsTable({ rows }: { rows: StandingRow[] }) {
-  const { teamById, playerById } = useSweepstake()
+  const { teamById } = useApp()
+  const { ownerOf } = useSweepstake()
   return (
     <table className="w-full text-xs">
       <thead>
@@ -54,7 +57,7 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
       <tbody>
         {rows.map((r, i) => {
           const team = teamById(r.teamId)
-          const owner = playerById(team?.assigned_player_id)
+          const owner = ownerOf(r.teamId)
           const qualifies = i < 2
           return (
             <tr
@@ -65,7 +68,7 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
             >
               <td className="py-1.5">
                 <span className="flex items-center gap-1.5">
-                  <OwnerDot team={team} />
+                  <OwnerDot teamId={r.teamId} />
                   <Flag emoji={team?.flag_emoji} />
                   <span className="truncate font-medium">{team?.name}</span>
                   {owner && (
@@ -90,15 +93,13 @@ function StandingsTable({ rows }: { rows: StandingRow[] }) {
 }
 
 export function GroupStage() {
-  const { standings, matches, teamById } = useSweepstake()
+  const { standings, matches, teamById } = useApp()
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {standings.map(({ group, rows }) => {
-        // Order chronologically by kickoff (ISO strings sort correctly). Once
-        // the API populates real kickoff times this reflects the true match
-        // order; until then, fixtures without a kickoff fall back to a stable
-        // order by team id.
+        // Order chronologically by kickoff (ISO strings sort correctly); fall
+        // back to a stable order by team id where kickoffs aren't set yet.
         const groupMatches = matches
           .filter((m) => m.stage === 'group' && m.group_label === group)
           .sort((a, b) => {

@@ -1,16 +1,30 @@
 # World Cup 2026 Sweepstake Manager
 
-A single-page app to run a sweepstake for the 48-team 2026 FIFA World Cup. One
-**admin** sets it up and enters results; everyone else views the same live data
-via a shared public URL. Built with **Vite + React + TypeScript + Tailwind**,
-backed by **Supabase** so every visitor sees identical, persistent data.
+A single-page app to run **multiple** sweepstakes for the 48-team 2026 FIFA World
+Cup off one shared tournament. Built with **Vite + React + TypeScript + Tailwind**,
+backed by **Supabase** so every visitor sees identical, persistent, live data.
 
-- **Home** (`/`) — the pot, prize podium (50/25/15%), Golden Boot & Golden Glove
-  bonus cards (5% each), live payout breakdown, top-5 odds race, player cards,
-  and The House (unassigned teams → charity).
-- **Wall Chart** (`/wall-chart`) — 12 group tables with editable scores +
-  recomputing standings, and an interactive R32 → Final knockout bracket with a
-  third-place playoff.
+### Multiple pools, one tournament
+
+- **Shared across all pools:** the 48 teams + odds, the fixtures/scores, and the
+  tournament results (champion, runner-up, third, top scorer, clean-sheet leader).
+  Enter a score once and every pool updates.
+- **Per pool:** its own players + buy-ins, team→player distribution, prize-split
+  percentages, charity, name, and admin passcode.
+- **Routing:** the landing page (`/`) creates a pool or jumps to one; each pool
+  lives at **`/s/<slug>`** (e.g. `/s/beenzee`). Pools are link-only (not listed).
+- **Creating a pool** is self-serve but gated by a global **create-passcode**
+  (stored in `app_config`). Each pool sets its own admin passcode.
+- **Editing results** (shared scores + champion/etc.) can be done by any pool's
+  unlocked admin; pool-specific settings need that pool's passcode.
+
+Each pool page has:
+- **Home** (`/s/<slug>`) — the pot, prize podium (default 50/25/15%), Golden Boot
+  & Golden Glove cards (5% each), live payout breakdown, top-5 odds race, player
+  cards, and The House (unassigned teams → charity).
+- **Wall Chart** (`/s/<slug>/wall-chart`) — 12 shared group tables with editable
+  scores + recomputing standings, and an interactive R32 → Final knockout bracket
+  with a third-place playoff. Owner colours are this pool's.
 
 ---
 
@@ -45,14 +59,22 @@ npm install
 
 ## 4. Create the database
 
+**Fresh project:**
 1. Supabase dashboard → **SQL Editor** → **New query**.
 2. Paste the entire contents of [`supabase/schema.sql`](supabase/schema.sql) → **Run**.
-3. **Seeding the teams + fixtures** — pick one:
+3. **Seeding** — pick one:
    - *Automatic:* just start the app. On first load against an empty database it
-     seeds the 48 teams, their A–L groups, all group fixtures, empty knockout
-     slots, and a few sample results.
-   - *Manual:* paste [`supabase/seed.sql`](supabase/seed.sql) into the SQL editor
-     and **Run** it (do this once).
+     seeds the 48 teams, their A–L groups, all fixtures, empty knockout slots, a
+     few sample results, the tournament/app_config rows, and a default pool.
+   - *Manual:* paste [`supabase/seed.sql`](supabase/seed.sql) and **Run** (once).
+4. Set a real create-passcode (it's app-layer only, so don't reuse a real password):
+   `update app_config set create_passcode = 'your-secret' where id = 1;`
+
+**Upgrading an EXISTING single-sweepstake database to multi-pool:** don't re-run
+`schema.sql`. Instead run [`supabase/migrations/001_multi_pool_phase1.sql`](supabase/migrations/001_multi_pool_phase1.sql)
+(additive — preserves your data and creates pool #1), deploy this multi-pool
+code, verify, then run [`002_multi_pool_phase2.sql`](supabase/migrations/002_multi_pool_phase2.sql)
+(drops the superseded `settings` table + `teams.assigned_player_id`).
 
 > **Access control (read this):** the schema enables RLS with **public read +
 > public write** policies; the admin passcode is enforced in the app only. This

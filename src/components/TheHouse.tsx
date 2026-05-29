@@ -2,13 +2,9 @@ import { useSweepstake } from '../hooks/useSweepstake'
 import { Flag } from './ui'
 
 export function TheHouse() {
-  const { teams, settings } = useSweepstake()
-  const houseTeams = teams
-    .filter((t) => t.assigned_player_id === null)
-    .sort((a, b) => a.favourite_rank - b.favourite_rank)
-
+  const { houseTeams, pool } = useSweepstake()
   if (houseTeams.length === 0) return null
-  const charity = settings?.charity_name?.trim() || 'Charity'
+  const charity = pool?.charity_name?.trim() || 'Charity'
 
   return (
     <div className="rounded-2xl border-2 border-dashed border-pitch-300 bg-pitch-50/60 p-5 dark:border-pitch-800 dark:bg-pitch-950/40">

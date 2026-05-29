@@ -1,22 +1,20 @@
+import { useApp } from '../../hooks/useApp'
 import { useSweepstake } from '../../hooks/useSweepstake'
 import { KNOCKOUT_ROUNDS, roundLabel, winnerId } from '../../lib/bracket'
 import { Flag } from '../ui'
 import type { Match, Stage } from '../../lib/types'
 
 function TeamRow({ match, side }: { match: Match; side: 'a' | 'b' }) {
-  const { teamById, playerById, adminUnlocked, setMatchScore } = useSweepstake()
+  const { teamById, setMatchScore } = useApp()
+  const { ownerOf, adminUnlocked } = useSweepstake()
   const teamId = side === 'a' ? match.team_a_id : match.team_b_id
   const team = teamById(teamId)
-  const owner = playerById(team?.assigned_player_id)
+  const owner = ownerOf(teamId)
   const score = side === 'a' ? match.score_a : match.score_b
   const isWinner = match.status === 'finished' && winnerId(match) === teamId && teamId != null
 
   return (
-    <div
-      className={`flex items-center gap-2 px-2 py-1.5 ${
-        isWinner ? 'bg-pitch-50 dark:bg-pitch-950/40' : ''
-      }`}
-    >
+    <div className={`flex items-center gap-2 px-2 py-1.5 ${isWinner ? 'bg-pitch-50 dark:bg-pitch-950/40' : ''}`}>
       <span
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ backgroundColor: owner?.colour ?? '#d4d4d4' }}
@@ -57,15 +55,13 @@ function MatchCard({ match }: { match: Match }) {
 }
 
 function RoundColumn({ stage, label }: { stage: Stage; label: string }) {
-  const { matches } = useSweepstake()
+  const { matches } = useApp()
   const roundMatches = matches
     .filter((m) => m.stage === stage)
     .sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
   return (
     <div className="flex min-w-[180px] flex-col">
-      <h4 className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-neutral-400">
-        {label}
-      </h4>
+      <h4 className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-neutral-400">{label}</h4>
       <div className="flex flex-1 flex-col justify-around gap-3">
         {roundMatches.map((m) => (
           <MatchCard key={m.id} match={m} />
@@ -76,7 +72,8 @@ function RoundColumn({ stage, label }: { stage: Stage; label: string }) {
 }
 
 export function Bracket() {
-  const { adminUnlocked, populateR32FromGroups } = useSweepstake()
+  const { adminUnlocked } = useSweepstake()
+  const { populateR32FromGroups } = useApp()
 
   return (
     <div>

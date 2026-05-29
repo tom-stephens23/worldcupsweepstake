@@ -4,313 +4,225 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import { getRepo } from '../lib/repo'
-import { calculatePayouts, type PayoutBreakdown } from '../lib/payouts'
-import { computeAllGroupStandings, type GroupTable } from '../lib/standings'
-import { computeR32Qualifiers, loserId, nextSlot, winnerId } from '../lib/bracket'
-import { groupForRank } from '../data/seedTeams'
+import { useApp } from './useApp'
+import { calculatePayouts, type PayoutBreakdown, type PrizeSplits } from '../lib/payouts'
 import { distributeTeams } from '../lib/distribute'
 import { colourForIndex } from '../lib/format'
-import type { Match, Player, Settings, Stage, Team } from '../lib/types'
+import type { Assignment, OwnershipMap, Player, Sweepstake, Team } from '../lib/types'
 
 interface SweepstakeApi {
   mode: 'supabase' | 'local'
-  configured: boolean // true when using the shared Supabase backend
   loading: boolean
-  error: string | null
+  notFound: boolean
+  slug: string
 
+  pool: Sweepstake | null
   players: Player[]
-  teams: Team[] // sorted by favourite_rank
-  matches: Match[]
-  settings: Settings | null
+  teams: Team[] // shared
+  ownership: OwnershipMap
 
-  // derived
   pot: number
   payouts: PayoutBreakdown
-  standings: GroupTable[]
+
   teamById: (id: string | null | undefined) => Team | undefined
   playerById: (id: string | null | undefined) => Player | undefined
+  ownerOf: (teamId: string | null | undefined) => Player | undefined
+  teamsOwnedBy: (playerId: string) => Team[]
+  houseTeams: Team[]
 
-  // admin session
   adminUnlocked: boolean
   unlockAdmin: (passcode: string) => boolean
   lockAdmin: () => void
 
-  refresh: () => Promise<void>
-  resetLocalData: (() => Promise<void>) | null // local mode only
-
-  // mutations
+  // pool mutations
   addPlayer: (name: string, buyIn: number) => Promise<void>
   updatePlayer: (id: string, patch: Partial<Pick<Player, 'name' | 'buy_in_aud' | 'colour'>>) => Promise<void>
   removePlayer: (id: string) => Promise<void>
-  reorderTeams: (orderedTeamIds: string[]) => Promise<void>
   distribute: () => Promise<void>
   clearAssignments: () => Promise<void>
-  setMatchScore: (matchId: string, scoreA: number | null, scoreB: number | null) => Promise<void>
-  populateR32FromGroups: () => Promise<void>
-  updateSettings: (patch: Partial<Settings>) => Promise<void>
+  updatePool: (patch: Partial<Sweepstake>) => Promise<void>
 }
 
 const SweepstakeContext = createContext<SweepstakeApi | null>(null)
 
-const ADMIN_KEY = 'wc2026_admin_unlocked'
-
-export function SweepstakeProvider({ children }: { children: ReactNode }) {
+export function SweepstakeProvider({ slug, children }: { slug: string; children: ReactNode }) {
+  const app = useApp()
   const repo = useMemo(() => getRepo(), [])
 
+  const pool = useMemo(() => app.pools.find((p) => p.slug === slug) ?? null, [app.pools, slug])
+  const notFound = !app.loading && pool === null
+
   const [players, setPlayers] = useState<Player[]>([])
-  const [teams, setTeams] = useState<Team[]>([])
-  const [matches, setMatches] = useState<Match[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [adminUnlocked, setAdminUnlocked] = useState(
-    () => sessionStorage.getItem(ADMIN_KEY) === '1',
-  )
+  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [poolLoading, setPoolLoading] = useState(true)
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
 
-  const load = useCallback(async () => {
-    try {
-      const data = await repo.load()
-      setPlayers(data.players)
-      setTeams([...data.teams].sort((a, b) => a.favourite_rank - b.favourite_rank))
-      setMatches(data.matches)
-      setSettings(data.settings)
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }, [repo])
+  const adminKey = `wc2026_admin_${slug}`
 
-  const loadRef = useRef(load)
-  loadRef.current = load
+  useEffect(() => {
+    setAdminUnlocked(sessionStorage.getItem(adminKey) === '1')
+  }, [adminKey])
 
-  // Boot: seed if empty, load, then subscribe to external changes.
+  const loadPool = useCallback(async () => {
+    if (!pool) return
+    const data = await repo.loadPoolData(pool.id)
+    setPlayers(data.players)
+    setAssignments(data.assignments)
+  }, [repo, pool])
+
+  // (Re)load this pool's data when the pool resolves or any shared change fires.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      try {
-        await repo.ensureSeeded()
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      if (!pool) {
+        setPoolLoading(app.loading)
+        return
       }
-      await loadRef.current()
-      if (!cancelled) setLoading(false)
+      await loadPool()
+      if (!cancelled) setPoolLoading(false)
     })()
-
-    const unsubscribe = repo.subscribe(() => loadRef.current())
     return () => {
       cancelled = true
-      unsubscribe()
     }
-  }, [repo])
+  }, [pool, app.loading, app.changeTick, loadPool])
 
-  // ---- admin session ----
+  const ownership: OwnershipMap = useMemo(
+    () => new Map(assignments.map((a) => [a.team_id, a.player_id])),
+    [assignments],
+  )
+  const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players])
+  const playerById = useCallback((id?: string | null) => (id ? playerMap.get(id) : undefined), [playerMap])
+  const ownerOf = useCallback(
+    (teamId?: string | null) => {
+      if (!teamId) return undefined
+      const pid = ownership.get(teamId) ?? null
+      return pid ? playerMap.get(pid) : undefined
+    },
+    [ownership, playerMap],
+  )
+  const teamsOwnedBy = useCallback(
+    (playerId: string) =>
+      app.teams.filter((t) => (ownership.get(t.id) ?? null) === playerId).sort((a, b) => a.favourite_rank - b.favourite_rank),
+    [app.teams, ownership],
+  )
+  const houseTeams = useMemo(
+    () => app.teams.filter((t) => (ownership.get(t.id) ?? null) === null).sort((a, b) => a.favourite_rank - b.favourite_rank),
+    [app.teams, ownership],
+  )
+
+  const splits: PrizeSplits | undefined = pool
+    ? {
+        champion_pct: pool.champion_pct,
+        runner_up_pct: pool.runner_up_pct,
+        third_pct: pool.third_pct,
+        top_scorer_pct: pool.top_scorer_pct,
+        clean_sheet_pct: pool.clean_sheet_pct,
+      }
+    : undefined
+
+  const payouts = useMemo(
+    () => calculatePayouts(players, ownership, app.teams, app.tournament, splits, pool?.charity_name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [players, ownership, app.teams, app.tournament, pool],
+  )
+
   const unlockAdmin = useCallback(
     (passcode: string) => {
-      const expected = settings?.admin_passcode ?? 'worldcup2026'
-      if (passcode === expected) {
-        sessionStorage.setItem(ADMIN_KEY, '1')
+      if (pool && passcode === pool.admin_passcode) {
+        sessionStorage.setItem(adminKey, '1')
         setAdminUnlocked(true)
         return true
       }
       return false
     },
-    [settings],
+    [pool, adminKey],
   )
-
   const lockAdmin = useCallback(() => {
-    sessionStorage.removeItem(ADMIN_KEY)
+    sessionStorage.removeItem(adminKey)
     setAdminUnlocked(false)
-  }, [])
+  }, [adminKey])
 
-  // ---- lookups ----
-  const teamMap = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams])
-  const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players])
-  const teamById = useCallback((id?: string | null) => (id ? teamMap.get(id) : undefined), [teamMap])
-  const playerById = useCallback((id?: string | null) => (id ? playerMap.get(id) : undefined), [playerMap])
-
-  // ---- derived ----
-  const payouts = useMemo(() => calculatePayouts(players, teams, settings), [players, teams, settings])
-  const standings = useMemo(() => computeAllGroupStandings(teams, matches), [teams, matches])
-
-  // ---- mutations ----
   const addPlayer = useCallback(
     async (name: string, buyIn: number) => {
-      await repo.insertPlayer({ name: name.trim(), buy_in_aud: buyIn, colour: colourForIndex(players.length) })
-      await load()
+      if (!pool) return
+      await repo.insertPlayer(pool.id, { name: name.trim(), buy_in_aud: buyIn, colour: colourForIndex(players.length) })
+      await loadPool()
     },
-    [repo, players.length, load],
+    [repo, pool, players.length, loadPool],
   )
-
   const updatePlayer = useCallback(
     async (id: string, patch: Partial<Pick<Player, 'name' | 'buy_in_aud' | 'colour'>>) => {
       await repo.updatePlayer(id, patch)
-      await load()
+      await loadPool()
     },
-    [repo, load],
+    [repo, loadPool],
   )
-
   const removePlayer = useCallback(
     async (id: string) => {
       await repo.deletePlayer(id)
-      await load()
+      await loadPool()
     },
-    [repo, load],
-  )
-
-  const reorderTeams = useCallback(
-    async (orderedTeamIds: string[]) => {
-      await Promise.all(
-        orderedTeamIds.map((id, index) => {
-          const rank = index + 1
-          return repo.updateTeam(id, { favourite_rank: rank, group_label: groupForRank(rank) })
-        }),
-      )
-      await load()
-    },
-    [repo, load],
+    [repo, loadPool],
   )
 
   const distribute = useCallback(async () => {
+    if (!pool) return
     if (players.length < 1) throw new Error('Add at least one player first.')
-    if (teams.length !== 48) throw new Error('Expected 48 teams before distributing.')
+    if (app.teams.length !== 48) throw new Error('Expected 48 teams before distributing.')
     const result = distributeTeams(
-      teams.map((t) => ({ id: t.id, favourite_rank: t.favourite_rank })),
+      app.teams.map((t) => ({ id: t.id, favourite_rank: t.favourite_rank })),
       players.map((p) => p.id),
     )
     await Promise.all(
-      Object.entries(result.assignments).map(([teamId, playerId]) =>
-        repo.updateTeam(teamId, { assigned_player_id: playerId }),
-      ),
+      Object.entries(result.assignments).map(([teamId, playerId]) => repo.setAssignment(pool.id, teamId, playerId)),
     )
-    await load()
-  }, [repo, players, teams, load])
+    await loadPool()
+  }, [repo, pool, players, app.teams, loadPool])
 
   const clearAssignments = useCallback(async () => {
-    await repo.clearTeamAssignments()
-    await load()
-  }, [repo, load])
+    if (!pool) return
+    await repo.clearAssignments(pool.id)
+    await loadPool()
+  }, [repo, pool, loadPool])
 
-  const findMatch = useCallback(
-    (stage: Stage, slot: number) => matches.find((m) => m.stage === stage && m.bracket_slot === slot),
-    [matches],
-  )
-
-  const setMatchScore = useCallback(
-    async (matchId: string, scoreA: number | null, scoreB: number | null) => {
-      const match = matches.find((m) => m.id === matchId)
-      if (!match) return
-
-      const decided = scoreA != null && scoreB != null
-      const updated: Match = {
-        ...match,
-        score_a: scoreA,
-        score_b: scoreB,
-        status: decided ? 'finished' : 'upcoming',
-      }
-      await repo.updateMatch(matchId, { score_a: scoreA, score_b: scoreB, status: updated.status })
-
-      // Knockout propagation.
-      if (match.stage !== 'group' && match.bracket_slot != null) {
-        const win = winnerId(updated)
-        const lose = loserId(updated)
-
-        const target = nextSlot(match.stage, match.bracket_slot)
-        if (target) {
-          const next = findMatch(target.stage, target.slot)
-          if (next) {
-            await repo.updateMatch(next.id, target.side === 'a' ? { team_a_id: win } : { team_b_id: win })
-          }
-        }
-
-        // Semi-final losers feed the third-place playoff.
-        if (match.stage === 'sf') {
-          const third = findMatch('third_place', 0)
-          if (third) {
-            await repo.updateMatch(third.id, match.bracket_slot === 0 ? { team_a_id: lose } : { team_b_id: lose })
-          }
-        }
-
-        // Resolving the Final / 3rd-place auto-updates the podium settings.
-        if (match.stage === 'final') {
-          await repo.updateSettings({ champion_team_id: win, runner_up_team_id: lose })
-        }
-        if (match.stage === 'third_place') {
-          await repo.updateSettings({ third_place_team_id: win })
-        }
-      }
-
-      await load()
+  const updatePool = useCallback(
+    async (patch: Partial<Sweepstake>) => {
+      if (!pool) return
+      await repo.updatePool(pool.id, patch)
+      await app.refreshShared()
     },
-    [repo, matches, findMatch, load],
-  )
-
-  const populateR32FromGroups = useCallback(async () => {
-    const qualifiers = computeR32Qualifiers(standings)
-    const r32 = matches.filter((m) => m.stage === 'r32')
-    await Promise.all(
-      r32.map((m) => {
-        const slot = m.bracket_slot ?? 0
-        return repo.updateMatch(m.id, {
-          team_a_id: qualifiers[slot * 2] ?? null,
-          team_b_id: qualifiers[slot * 2 + 1] ?? null,
-        })
-      }),
-    )
-    await load()
-  }, [repo, standings, matches, load])
-
-  const updateSettings = useCallback(
-    async (patch: Partial<Settings>) => {
-      await repo.updateSettings(patch)
-      await load()
-    },
-    [repo, load],
-  )
-
-  const resetLocalData = useMemo(
-    () =>
-      repo.reset
-        ? async () => {
-            await repo.reset!()
-            await load()
-          }
-        : null,
-    [repo, load],
+    [repo, pool, app],
   )
 
   const value: SweepstakeApi = {
-    mode: repo.mode,
-    configured: repo.mode === 'supabase',
-    loading,
-    error,
+    mode: app.mode,
+    loading: app.loading || poolLoading,
+    notFound,
+    slug,
+    pool,
     players,
-    teams,
-    matches,
-    settings,
+    teams: app.teams,
+    ownership,
     pot: payouts.pot,
     payouts,
-    standings,
-    teamById,
+    teamById: app.teamById,
     playerById,
+    ownerOf,
+    teamsOwnedBy,
+    houseTeams,
     adminUnlocked,
     unlockAdmin,
     lockAdmin,
-    refresh: load,
-    resetLocalData,
     addPlayer,
     updatePlayer,
     removePlayer,
-    reorderTeams,
     distribute,
     clearAssignments,
-    setMatchScore,
-    populateR32FromGroups,
-    updateSettings,
+    updatePool,
   }
 
   return <SweepstakeContext.Provider value={value}>{children}</SweepstakeContext.Provider>

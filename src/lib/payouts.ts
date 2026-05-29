@@ -1,42 +1,57 @@
 // Pure prize-calculation logic (unit-tested in payouts.test.ts).
 //
-// Pot = sum(buy_in_aud). Five allocations of that pot (they sum to 100%):
-//   champion    50%
-//   runner_up   25%
-//   third_place 15%
-//   top_scorer   5%  (top scorer's COUNTRY owner — Golden Boot)
-//   clean_sheet  5%  (clean-sheet leader's COUNTRY owner — Golden Glove)
+// Pot = sum(buy_in_aud) for the POOL's players. Five allocations of that pot,
+// using the POOL's configurable split percentages (default 50/25/15/5/5):
+//   champion · runner_up · third_place · top_scorer (Golden Boot) ·
+//   clean_sheet (Golden Glove)
 //
 // • Shares STACK: one player can collect several.
-// • If the team behind a share is a House team (assigned_player_id === null),
-//   that share is routed to Charity, not a player.
-// • If the team for a share isn't decided yet (no team set in settings), the
-//   share is "pending" / TBD.
+// • The team behind each share comes from the SHARED tournament results; the
+//   OWNER of that team comes from this pool's ownership map (teamId → playerId).
+// • If the owning entry is null (House team), the share routes to Charity.
+// • If the tournament result isn't decided yet, the share is "pending" / TBD.
 
-import type { Player, Settings, Team } from './types'
+import type { OwnershipMap, Player, Team } from './types'
 
 export type ShareKey = 'champion' | 'runner_up' | 'third_place' | 'top_scorer' | 'clean_sheet'
 
-export interface ShareDefinition {
+export interface PrizeSplits {
+  champion_pct: number
+  runner_up_pct: number
+  third_pct: number
+  top_scorer_pct: number
+  clean_sheet_pct: number
+}
+
+export interface TournamentResults {
+  champion_team_id: string | null
+  runner_up_team_id: string | null
+  third_place_team_id: string | null
+  top_scorer_team_id: string | null
+  clean_sheet_team_id: string | null
+}
+
+export const DEFAULT_SPLITS: PrizeSplits = {
+  champion_pct: 0.5,
+  runner_up_pct: 0.25,
+  third_pct: 0.15,
+  top_scorer_pct: 0.05,
+  clean_sheet_pct: 0.05,
+}
+
+interface ShareDefinition {
   key: ShareKey
   label: string
-  pct: number // 0–1
-  settingsField: keyof Pick<
-    Settings,
-    | 'champion_team_id'
-    | 'runner_up_team_id'
-    | 'third_place_team_id'
-    | 'top_scorer_team_id'
-    | 'clean_sheet_team_id'
-  >
+  pctField: keyof PrizeSplits
+  teamField: keyof TournamentResults
 }
 
 export const SHARES: ShareDefinition[] = [
-  { key: 'champion', label: 'Champion', pct: 0.5, settingsField: 'champion_team_id' },
-  { key: 'runner_up', label: 'Runner-up', pct: 0.25, settingsField: 'runner_up_team_id' },
-  { key: 'third_place', label: 'Third place', pct: 0.15, settingsField: 'third_place_team_id' },
-  { key: 'top_scorer', label: 'Golden Boot', pct: 0.05, settingsField: 'top_scorer_team_id' },
-  { key: 'clean_sheet', label: 'Golden Glove', pct: 0.05, settingsField: 'clean_sheet_team_id' },
+  { key: 'champion', label: 'Champion', pctField: 'champion_pct', teamField: 'champion_team_id' },
+  { key: 'runner_up', label: 'Runner-up', pctField: 'runner_up_pct', teamField: 'runner_up_team_id' },
+  { key: 'third_place', label: 'Third place', pctField: 'third_pct', teamField: 'third_place_team_id' },
+  { key: 'top_scorer', label: 'Golden Boot', pctField: 'top_scorer_pct', teamField: 'top_scorer_team_id' },
+  { key: 'clean_sheet', label: 'Golden Glove', pctField: 'clean_sheet_pct', teamField: 'clean_sheet_team_id' },
 ]
 
 export type RecipientType = 'player' | 'charity' | 'pending'
@@ -50,8 +65,8 @@ export interface ShareResult {
   teamName: string | null
   teamFlag: string | null
   recipientType: RecipientType
-  recipientId: string | null // player id when recipientType === 'player'
-  recipientName: string // player name, charity name, or 'TBD'
+  recipientId: string | null
+  recipientName: string
 }
 
 export interface PlayerPayout {
@@ -68,7 +83,6 @@ export interface PayoutBreakdown {
   byPlayer: PlayerPayout[]
   charityTotal: number
   charityName: string
-  /** Total of shares not yet decided (no result set). */
   pendingTotal: number
 }
 
@@ -76,19 +90,31 @@ export function calculatePot(players: readonly Player[]): number {
   return players.reduce((sum, p) => sum + (Number(p.buy_in_aud) || 0), 0)
 }
 
+/**
+ * @param players    this pool's players
+ * @param ownership  teamId → playerId|null for this pool (null/absent = House)
+ * @param teams      shared team roster (for names/flags)
+ * @param tournament shared tournament results (champion etc.); null = none set
+ * @param splits     this pool's prize-split percentages
+ * @param charityName this pool's charity label
+ */
 export function calculatePayouts(
   players: readonly Player[],
+  ownership: OwnershipMap,
   teams: readonly Team[],
-  settings: Settings | null,
+  tournament: TournamentResults | null,
+  splits: PrizeSplits = DEFAULT_SPLITS,
+  charityName = 'Charity',
 ): PayoutBreakdown {
   const pot = calculatePot(players)
-  const charityName = settings?.charity_name?.trim() || 'Charity'
+  const charity = charityName?.trim() || 'Charity'
   const teamById = new Map(teams.map((t) => [t.id, t]))
   const playerById = new Map(players.map((p) => [p.id, p]))
 
   const shares: ShareResult[] = SHARES.map((def) => {
-    const amount = pot * def.pct
-    const teamId = settings ? settings[def.settingsField] : null
+    const pct = Number(splits[def.pctField]) || 0
+    const amount = pot * pct
+    const teamId = tournament ? tournament[def.teamField] : null
     const team = teamId ? teamById.get(teamId) ?? null : null
 
     let recipientType: RecipientType = 'pending'
@@ -96,28 +122,23 @@ export function calculatePayouts(
     let recipientName = 'TBD'
 
     if (team) {
-      if (team.assigned_player_id) {
-        const owner = playerById.get(team.assigned_player_id)
-        if (owner) {
-          recipientType = 'player'
-          recipientId = owner.id
-          recipientName = owner.name
-        } else {
-          // Team assigned to a player that no longer exists → treat as House → charity.
-          recipientType = 'charity'
-          recipientName = charityName
-        }
+      const ownerId = ownership.get(team.id) ?? null
+      const owner = ownerId ? playerById.get(ownerId) : undefined
+      if (owner) {
+        recipientType = 'player'
+        recipientId = owner.id
+        recipientName = owner.name
       } else {
-        // House team → charity.
+        // House team (or owner not in this pool) → charity.
         recipientType = 'charity'
-        recipientName = charityName
+        recipientName = charity
       }
     }
 
     return {
       key: def.key,
       label: def.label,
-      pct: def.pct,
+      pct,
       amount,
       teamId: team?.id ?? null,
       teamName: team?.name ?? null,
@@ -128,7 +149,6 @@ export function calculatePayouts(
     }
   })
 
-  // Aggregate per player (shares stack).
   const playerMap = new Map<string, PlayerPayout>()
   let charityTotal = 0
   let pendingTotal = 0
@@ -162,7 +182,7 @@ export function calculatePayouts(
     shares,
     byPlayer,
     charityTotal,
-    charityName,
+    charityName: charity,
     pendingTotal,
   }
 }

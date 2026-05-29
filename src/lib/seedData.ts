@@ -1,9 +1,10 @@
-// Pure seed-data generator shared by BOTH backends (Supabase + local mode).
-// Produces the 48 teams, their A–L groups, every group fixture, empty knockout
-// slots, a few sample results, and the default bonus-stat settings.
+// Pure seed-data generator for a FRESH multi-pool database (used by the local
+// fallback, and by supabaseRepo.ensureSeeded when a brand-new project is empty).
 //
-// Generating UUIDs client-side keeps this backend-agnostic: the Supabase repo
-// inserts these rows verbatim, and the local repo stores them in localStorage.
+// Produces the SHARED tournament data (48 teams, A–L groups, all fixtures, empty
+// knockout slots, sample results, tournament-results row, app_config) plus ONE
+// default pool ("BeeNZee" at /s/beenzee) so there's somewhere to land. Pools are
+// otherwise created in-app.
 
 import { GROUP_LABELS, SEED_TEAMS, groupForRank } from '../data/seedTeams'
 import {
@@ -13,7 +14,7 @@ import {
   WIN_PROBABILITY_BY_TEAM,
 } from '../data/footballData'
 import { KNOCKOUT_ROUNDS } from './bracket'
-import type { Match, Settings, Team } from './types'
+import type { AppConfig, Match, Sweepstake, Team, Tournament } from './types'
 
 const GROUP_PAIRINGS: [number, number][] = [
   [0, 1],
@@ -26,26 +27,18 @@ const GROUP_PAIRINGS: [number, number][] = [
 const RESIDUAL_WIN_PROB = 0.003
 
 function uuid(): string {
-  // crypto.randomUUID is available in all modern browsers + Node 19+.
   return crypto.randomUUID()
 }
 
-export const DEFAULT_SETTINGS: Settings = {
-  id: 1,
-  admin_passcode: 'worldcup2026',
-  champion_team_id: null,
-  runner_up_team_id: null,
-  third_place_team_id: null,
-  top_scorer_team_id: null,
-  clean_sheet_team_id: null,
-  charity_name: 'Charity',
-  dark_mode: false,
-}
+export const DEFAULT_POOL = { slug: 'beenzee', name: 'BeeNZee' }
+export const LOCAL_CREATE_PASSCODE = 'changeme' // local-preview only
 
 export interface SeedData {
   teams: Team[]
   matches: Match[]
-  settings: Settings
+  tournament: Tournament
+  appConfig: AppConfig
+  pools: Sweepstake[]
 }
 
 export function generateSeedData(): SeedData {
@@ -55,14 +48,11 @@ export function generateSeedData(): SeedData {
     flag_emoji: t.flag,
     favourite_rank: t.rank,
     group_label: groupForRank(t.rank),
-    assigned_player_id: null,
     win_probability: WIN_PROBABILITY_BY_TEAM[t.name] ?? RESIDUAL_WIN_PROB,
   }))
   const byName = new Map(teams.map((t) => [t.name, t]))
 
   const matches: Match[] = []
-
-  // Group fixtures: round-robin (6 per group).
   for (const group of GROUP_LABELS) {
     const groupTeams = teams
       .filter((t) => t.group_label === group)
@@ -72,8 +62,6 @@ export function generateSeedData(): SeedData {
       matches.push(blankMatch('group', { group_label: group, team_a_id: groupTeams[i].id, team_b_id: groupTeams[j].id }))
     }
   }
-
-  // Knockout placeholders.
   for (const round of KNOCKOUT_ROUNDS) {
     for (let slot = 0; slot < round.matches; slot++) {
       matches.push(blankMatch(round.stage, { bracket_slot: slot }))
@@ -81,7 +69,6 @@ export function generateSeedData(): SeedData {
   }
   matches.push(blankMatch('third_place', { bracket_slot: 0 }))
 
-  // Sample results.
   for (const s of SAMPLE_SCORES) {
     const home = byName.get(s.home)
     const away = byName.get(s.away)
@@ -100,13 +87,32 @@ export function generateSeedData(): SeedData {
     }
   }
 
-  const settings: Settings = {
-    ...DEFAULT_SETTINGS,
+  const tournament: Tournament = {
+    id: 1,
+    champion_team_id: null,
+    runner_up_team_id: null,
+    third_place_team_id: null,
     top_scorer_team_id: byName.get(TOP_SCORER.team)?.id ?? null,
     clean_sheet_team_id: byName.get(CLEAN_SHEET_LEADER.team)?.id ?? null,
   }
 
-  return { teams, matches, settings }
+  const appConfig: AppConfig = { id: 1, create_passcode: LOCAL_CREATE_PASSCODE }
+
+  const defaultPool: Sweepstake = {
+    id: uuid(),
+    slug: DEFAULT_POOL.slug,
+    name: DEFAULT_POOL.name,
+    admin_passcode: 'worldcup2026',
+    charity_name: 'Charity',
+    champion_pct: 0.5,
+    runner_up_pct: 0.25,
+    third_pct: 0.15,
+    top_scorer_pct: 0.05,
+    clean_sheet_pct: 0.05,
+    created_at: new Date().toISOString(),
+  }
+
+  return { teams, matches, tournament, appConfig, pools: [defaultPool] }
 }
 
 function blankMatch(stage: Match['stage'], overrides: Partial<Match>): Match {

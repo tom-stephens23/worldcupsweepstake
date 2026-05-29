@@ -1,104 +1,136 @@
 -- ============================================================================
--- World Cup 2026 Sweepstake — database schema
+-- World Cup 2026 Sweepstake — database schema (MULTI-POOL)
 -- ----------------------------------------------------------------------------
--- HOW TO RUN:
---   1. Open your project at https://supabase.com/dashboard
---   2. Left sidebar → "SQL Editor" → "New query"
---   3. Paste the ENTIRE contents of this file → click "Run"
---   4. (Optional but recommended) then run supabase/seed.sql the same way to
---      load the 48 placeholder teams + group-stage fixtures. If you skip the
---      seed file, the app will auto-seed the teams + fixtures the first time
---      it loads against an empty database.
+-- Model: ONE shared tournament (teams, matches, tournament results) with MANY
+-- pools (sweepstakes). Each pool has its own players, team ownership, prize
+-- splits, charity, and admin passcode.
 --
--- ACCESS CONTROL — READ THIS:
---   This is a low-stakes, private sweepstake. RLS is enabled but the policies
---   below intentionally allow PUBLIC READ *and* PUBLIC WRITE. The admin
---   passcode is enforced in the app layer only (see settings.admin_passcode).
---   This is deliberately simple and is NOT suitable for sensitive data — anyone
---   with the anon key could write to these tables directly.
+-- HOW TO RUN (fresh project): SQL Editor → paste this whole file → Run. Then
+-- either run supabase/seed.sql, or just load the app (it auto-seeds an empty DB
+-- with the 48 teams, fixtures, tournament row, app_config, and a default pool).
 --
---   If you later want real security, move the write path behind RLS keyed on an
---   authenticated admin (auth.uid()) or a Supabase Edge Function that checks the
---   passcode server-side, and change these policies to read-only for anon.
+-- NB: If you have an EXISTING single-sweepstake database, do NOT run this —
+-- run supabase/migrations/001_multi_pool_phase1.sql instead (it preserves data).
+--
+-- ACCESS CONTROL: RLS is enabled but policies allow PUBLIC READ + PUBLIC WRITE;
+-- passcodes (pool admin + create-passcode) are enforced in the app layer only.
+-- Intentionally simple, NOT for sensitive data. To harden, move writes behind
+-- authenticated RLS / an Edge Function.
 -- ============================================================================
 
--- Safe to re-run: drop existing objects first.
-drop table if exists matches cascade;
-drop table if exists settings cascade;
-drop table if exists teams cascade;
+drop table if exists pool_team_assignments cascade;
 drop table if exists players cascade;
+drop table if exists sweepstakes cascade;
+drop table if exists matches cascade;
+drop table if exists tournament cascade;
+drop table if exists app_config cascade;
+drop table if exists teams cascade;
 
--- ----------------------------------------------------------------------------
--- Tables
--- ----------------------------------------------------------------------------
-create table players (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  buy_in_aud numeric not null default 0,
-  colour text,                            -- hex accent for the player's cards/chips
-  created_at timestamptz default now()
-);
-
+-- ---- Shared: teams ----------------------------------------------------------
 create table teams (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   flag_emoji text,
   favourite_rank int not null,            -- 1 = top favourite … 48 = longshot
   group_label text,                       -- A–L group assignment
-  assigned_player_id uuid references players(id) on delete set null,  -- null = "The House"
   win_probability numeric default 0       -- 0–1, for the odds race
 );
 
+-- ---- Shared: matches (fixtures + scores + results) --------------------------
 create table matches (
   id uuid primary key default gen_random_uuid(),
   stage text not null,                    -- group | r32 | r16 | qf | sf | final | third_place
-  group_label text,                       -- A–L for group stage
-  bracket_slot int,                       -- 0-based order within a knockout round (null for groups)
+  group_label text,
+  bracket_slot int,                       -- 0-based order within a knockout round
   team_a_id uuid references teams(id) on delete set null,
   team_b_id uuid references teams(id) on delete set null,
   score_a int,
   score_b int,
-  status text not null default 'upcoming',-- upcoming | live | finished
+  status text not null default 'upcoming',
   kickoff timestamptz
 );
 
-create table settings (
+-- ---- Shared: tournament results (single row, id = 1) ------------------------
+create table tournament (
   id int primary key default 1,
-  admin_passcode text default 'worldcup2026',
-  champion_team_id uuid references teams(id) on delete set null,
-  runner_up_team_id uuid references teams(id) on delete set null,
+  champion_team_id    uuid references teams(id) on delete set null,
+  runner_up_team_id   uuid references teams(id) on delete set null,
   third_place_team_id uuid references teams(id) on delete set null,
-  top_scorer_team_id uuid references teams(id) on delete set null,
-  clean_sheet_team_id uuid references teams(id) on delete set null,
-  charity_name text default 'Charity',
-  dark_mode boolean default false
+  top_scorer_team_id  uuid references teams(id) on delete set null,
+  clean_sheet_team_id uuid references teams(id) on delete set null
 );
-insert into settings (id) values (1);
+insert into tournament (id) values (1);
 
--- Helpful indexes
+-- ---- Shared: global app config (single row, id = 1) -------------------------
+create table app_config (
+  id int primary key default 1,
+  create_passcode text not null default 'changeme'  -- set a real value; app-layer only
+);
+insert into app_config (id) values (1);
+
+-- ---- Pools ------------------------------------------------------------------
+create table sweepstakes (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  admin_passcode text not null default 'worldcup2026',
+  charity_name text not null default 'Charity',
+  champion_pct    numeric not null default 0.50,
+  runner_up_pct   numeric not null default 0.25,
+  third_pct       numeric not null default 0.15,
+  top_scorer_pct  numeric not null default 0.05,
+  clean_sheet_pct numeric not null default 0.05,
+  created_at timestamptz default now()
+);
+create index on sweepstakes (slug);
+
+-- ---- Per-pool: players ------------------------------------------------------
+create table players (
+  id uuid primary key default gen_random_uuid(),
+  sweepstake_id uuid references sweepstakes(id) on delete cascade,
+  name text not null,
+  buy_in_aud numeric not null default 0,
+  colour text,
+  created_at timestamptz default now()
+);
+
+-- ---- Per-pool: team ownership ----------------------------------------------
+create table pool_team_assignments (
+  id uuid primary key default gen_random_uuid(),
+  sweepstake_id uuid not null references sweepstakes(id) on delete cascade,
+  team_id uuid not null references teams(id) on delete cascade,
+  player_id uuid references players(id) on delete set null,  -- null = The House
+  unique (sweepstake_id, team_id)
+);
+create index on pool_team_assignments (sweepstake_id);
+
 create index on teams (favourite_rank);
-create index on teams (assigned_player_id);
 create index on matches (stage);
 create index on matches (group_label);
+create index on players (sweepstake_id);
 
--- ----------------------------------------------------------------------------
--- Row Level Security — PUBLIC read + write (see access-control note above)
--- ----------------------------------------------------------------------------
-alter table players  enable row level security;
-alter table teams    enable row level security;
-alter table matches  enable row level security;
-alter table settings enable row level security;
+-- ---- RLS: public read + write (app-layer passcodes; see note above) ---------
+alter table teams                 enable row level security;
+alter table matches               enable row level security;
+alter table tournament            enable row level security;
+alter table app_config            enable row level security;
+alter table sweepstakes           enable row level security;
+alter table players               enable row level security;
+alter table pool_team_assignments enable row level security;
 
--- One permissive policy per table covering all commands for anon + authenticated.
-create policy "public_all_players"  on players  for all using (true) with check (true);
-create policy "public_all_teams"    on teams    for all using (true) with check (true);
-create policy "public_all_matches"  on matches  for all using (true) with check (true);
-create policy "public_all_settings" on settings for all using (true) with check (true);
+create policy "public_all_teams"       on teams                 for all using (true) with check (true);
+create policy "public_all_matches"     on matches               for all using (true) with check (true);
+create policy "public_all_tournament"  on tournament            for all using (true) with check (true);
+create policy "public_all_app_config"  on app_config            for all using (true) with check (true);
+create policy "public_all_sweepstakes" on sweepstakes           for all using (true) with check (true);
+create policy "public_all_players"     on players               for all using (true) with check (true);
+create policy "public_all_pta"         on pool_team_assignments for all using (true) with check (true);
 
--- ----------------------------------------------------------------------------
--- Realtime (optional): lets every open browser update live without refresh.
--- ----------------------------------------------------------------------------
-alter publication supabase_realtime add table players;
+-- ---- Realtime ---------------------------------------------------------------
 alter publication supabase_realtime add table teams;
 alter publication supabase_realtime add table matches;
-alter publication supabase_realtime add table settings;
+alter publication supabase_realtime add table tournament;
+alter publication supabase_realtime add table app_config;
+alter publication supabase_realtime add table sweepstakes;
+alter publication supabase_realtime add table players;
+alter publication supabase_realtime add table pool_team_assignments;

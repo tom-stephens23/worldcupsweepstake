@@ -3,7 +3,7 @@ import { formatAUD } from '../lib/format'
 import { Flag, SectionHeading } from './ui'
 
 export function PlayersGrid() {
-  const { players, teams, payouts } = useSweepstake()
+  const { players, teamsOwnedBy, payouts } = useSweepstake()
 
   if (players.length === 0) {
     return (
@@ -23,9 +23,7 @@ export function PlayersGrid() {
       <SectionHeading kicker="Players & teams" title="Who owns what" />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {players.map((player) => {
-          const owned = teams
-            .filter((t) => t.assigned_player_id === player.id)
-            .sort((a, b) => a.favourite_rank - b.favourite_rank)
+          const owned = teamsOwnedBy(player.id)
           const colour = player.colour ?? '#0f6b40'
           const projected = payoutFor(player.id)
           return (

@@ -1,36 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { calculatePayouts, calculatePot } from './payouts'
-import type { Player, Settings, Team } from './types'
+import { calculatePayouts, calculatePot, DEFAULT_SPLITS, type TournamentResults } from './payouts'
+import type { OwnershipMap, Player, Team } from './types'
 
 const player = (id: string, name: string, buyIn: number): Player => ({
   id,
+  sweepstake_id: 'pool1',
   name,
   buy_in_aud: buyIn,
   colour: null,
 })
 
-const team = (id: string, name: string, ownerId: string | null): Team => ({
+const team = (id: string, name: string): Team => ({
   id,
   name,
   flag_emoji: '🏳️',
   favourite_rank: 1,
   group_label: 'A',
-  assigned_player_id: ownerId,
   win_probability: 0,
 })
 
-const baseSettings = (overrides: Partial<Settings> = {}): Settings => ({
-  id: 1,
-  admin_passcode: 'worldcup2026',
+const tournament = (overrides: Partial<TournamentResults> = {}): TournamentResults => ({
   champion_team_id: null,
   runner_up_team_id: null,
   third_place_team_id: null,
   top_scorer_team_id: null,
   clean_sheet_team_id: null,
-  charity_name: 'Charity',
-  dark_mode: false,
   ...overrides,
 })
+
+const own = (entries: [string, string | null][]): OwnershipMap => new Map(entries)
 
 describe('calculatePot', () => {
   it('sums buy-ins', () => {
@@ -42,18 +40,15 @@ describe('calculatePayouts', () => {
   it('shares STACK: one player can collect several allocations', () => {
     // Pot = 100. Alice owns champion (50) + top scorer (5) = 55. Bob owns runner-up (25).
     const players = [player('alice', 'Alice', 60), player('bob', 'Bob', 40)]
-    const teams = [
-      team('tc', 'Champ FC', 'alice'),
-      team('tr', 'Runner FC', 'bob'),
-      team('ts', 'Boot FC', 'alice'),
-    ]
-    const settings = baseSettings({
-      champion_team_id: 'tc',
-      runner_up_team_id: 'tr',
-      top_scorer_team_id: 'ts',
-    })
+    const teams = [team('tc', 'Champ FC'), team('tr', 'Runner FC'), team('ts', 'Boot FC')]
+    const ownership = own([
+      ['tc', 'alice'],
+      ['tr', 'bob'],
+      ['ts', 'alice'],
+    ])
+    const results = tournament({ champion_team_id: 'tc', runner_up_team_id: 'tr', top_scorer_team_id: 'ts' })
 
-    const result = calculatePayouts(players, teams, settings)
+    const result = calculatePayouts(players, ownership, teams, results, DEFAULT_SPLITS, 'Charity')
     expect(result.pot).toBe(100)
 
     const alice = result.byPlayer.find((p) => p.playerId === 'alice')!
@@ -62,29 +57,27 @@ describe('calculatePayouts', () => {
     expect(alice.shareKeys.sort()).toEqual(['champion', 'top_scorer'])
     expect(bob.amount).toBeCloseTo(25)
 
-    // third place + clean sheet remain undecided.
-    expect(result.pendingTotal).toBeCloseTo(20) // 15 + 5
+    expect(result.pendingTotal).toBeCloseTo(20) // third (15) + clean sheet (5) undecided
     expect(result.charityTotal).toBe(0)
   })
 
-  it('House-owned share routes to Charity, not a player', () => {
-    // Pot = 200. Champion team is a HOUSE team (assigned_player_id null) → charity gets 50% = 100.
+  it('House-owned share (no owner in pool) routes to Charity', () => {
+    // Pot = 200. Champion team is unowned in this pool → charity gets 50% = 100.
     const players = [player('alice', 'Alice', 200)]
-    const teams = [team('house', 'House FC', null), team('mine', 'Mine FC', 'alice')]
-    const settings = baseSettings({
-      charity_name: 'Local Kids Charity',
-      champion_team_id: 'house',
-      runner_up_team_id: 'mine',
-    })
+    const teams = [team('house', 'House FC'), team('mine', 'Mine FC')]
+    const ownership = own([
+      ['house', null], // House
+      ['mine', 'alice'],
+    ])
+    const results = tournament({ champion_team_id: 'house', runner_up_team_id: 'mine' })
 
-    const result = calculatePayouts(players, teams, settings)
+    const result = calculatePayouts(players, ownership, teams, results, DEFAULT_SPLITS, 'Local Kids Charity')
     expect(result.pot).toBe(200)
     expect(result.charityName).toBe('Local Kids Charity')
-    expect(result.charityTotal).toBeCloseTo(100) // champion 50% → charity
+    expect(result.charityTotal).toBeCloseTo(100)
 
     const alice = result.byPlayer.find((p) => p.playerId === 'alice')!
     expect(alice.amount).toBeCloseTo(50) // runner-up 25% of 200
-    // Champion share recipient is charity.
     const champShare = result.shares.find((s) => s.key === 'champion')!
     expect(champShare.recipientType).toBe('charity')
     expect(champShare.recipientName).toBe('Local Kids Charity')
@@ -92,17 +85,36 @@ describe('calculatePayouts', () => {
 
   it('undecided results are pending (TBD), not paid out', () => {
     const players = [player('a', 'A', 100)]
-    const result = calculatePayouts(players, [], baseSettings())
+    const result = calculatePayouts(players, own([]), [], tournament(), DEFAULT_SPLITS, 'Charity')
     expect(result.byPlayer).toHaveLength(0)
     expect(result.charityTotal).toBe(0)
-    expect(result.pendingTotal).toBeCloseTo(100) // whole pot undecided
+    expect(result.pendingTotal).toBeCloseTo(100)
     expect(result.shares.every((s) => s.recipientType === 'pending')).toBe(true)
   })
 
-  it('the five shares always sum to the full pot (100%)', () => {
+  it('default shares sum to the full pot (100%)', () => {
     const players = [player('a', 'A', 33), player('b', 'B', 67)]
-    const result = calculatePayouts(players, [], baseSettings())
+    const result = calculatePayouts(players, own([]), [], tournament(), DEFAULT_SPLITS)
     const total = result.shares.reduce((s, x) => s + x.amount, 0)
     expect(total).toBeCloseTo(result.pot)
+  })
+
+  it('honours per-pool custom split percentages', () => {
+    // Pot = 100, custom: champion 70% / runner-up 30%, rest 0.
+    const players = [player('alice', 'Alice', 100)]
+    const teams = [team('tc', 'Champ FC')]
+    const ownership = own([['tc', 'alice']])
+    const splits = { champion_pct: 0.7, runner_up_pct: 0.3, third_pct: 0, top_scorer_pct: 0, clean_sheet_pct: 0 }
+    const result = calculatePayouts(
+      players,
+      ownership,
+      teams,
+      tournament({ champion_team_id: 'tc' }),
+      splits,
+      'Charity',
+    )
+    const champShare = result.shares.find((s) => s.key === 'champion')!
+    expect(champShare.amount).toBeCloseTo(70)
+    expect(result.byPlayer.find((p) => p.playerId === 'alice')!.amount).toBeCloseTo(70)
   })
 })

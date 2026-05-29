@@ -25,9 +25,18 @@ describe('generateSeedData', () => {
     expect(finished.every((m) => m.score_a != null && m.score_b != null)).toBe(true)
   })
 
-  it('defaults the Golden Boot / Golden Glove countries', () => {
-    expect(data.settings.top_scorer_team_id).toBeTruthy()
-    expect(data.settings.clean_sheet_team_id).toBeTruthy()
-    expect(data.settings.admin_passcode).toBe('worldcup2026')
+  it('defaults the Golden Boot / Golden Glove countries on the tournament row', () => {
+    expect(data.tournament.top_scorer_team_id).toBeTruthy()
+    expect(data.tournament.clean_sheet_team_id).toBeTruthy()
+  })
+
+  it('creates a default pool with full prize splits', () => {
+    expect(data.pools).toHaveLength(1)
+    const pool = data.pools[0]
+    expect(pool.slug).toBe('beenzee')
+    expect(pool.admin_passcode).toBe('worldcup2026')
+    const total =
+      pool.champion_pct + pool.runner_up_pct + pool.third_pct + pool.top_scorer_pct + pool.clean_sheet_pct
+    expect(total).toBeCloseTo(1)
   })
 })
