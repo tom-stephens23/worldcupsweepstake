@@ -8,11 +8,9 @@
  * Run: node scripts/sync.js
  *
  * What it updates:
- *   teams      — group_label (real draw) + canonical name (e.g. Turkey → Türkiye)
- *   matches    — deletes placeholder group fixtures, inserts real ones with kickoffs;
- *                updates knockout kickoff dates
- *   tournament — top scorer (team + player name + goals) and clean sheet leader
- *                (team + GK name + count), derived from completed match summaries
+ *   teams   — group_label (real draw) + canonical name (e.g. Turkey → Türkiye)
+ *   matches — deletes placeholder group fixtures, inserts real ones with kickoffs;
+ *             updates knockout kickoff dates
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -228,7 +226,19 @@ async function main() {
   console.log(`  → ${completedEvents.length} completed matches`)
 
   if (completedEvents.length === 0) {
-    console.log('  → No completed matches yet, skipping scoring update')
+    console.log('  → No completed matches yet, clearing scoring fields')
+    const { error: clearErr } = await supabase
+      .from('tournament')
+      .update({
+        top_scorer_team_id: null,
+        top_scorer_name: null,
+        top_scorer_goals: null,
+        clean_sheet_team_id: null,
+        clean_sheet_gk_name: null,
+        clean_sheet_count: null,
+      })
+      .eq('id', 1)
+    if (clearErr) throw clearErr
   } else {
     // player display name → { teamEspnName, goals }
     const playerGoals = new Map()
@@ -340,199 +350,6 @@ async function main() {
     if (tErr) throw tErr
     console.log('  ✓ Tournament table updated')
   }
-
-  console.log('\n✅ Sync complete!')
-}
-
-main().catch(err => {
-  console.error('\n❌ Sync failed:', err.message)
-  process.exit(1)
-})
-const SLUG_TO_STAGE = {
-  'group-stage': 'group',
-  'round-of-32': 'r32',
-  'round-of-16': 'r16',
-  'quarterfinals': 'qf',
-  'semifinals': 'sf',
-  '3rd-place-match': 'third_place',
-  'final': 'final',
-}
-
-async function espnGet(url) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`ESPN ${res.status}: ${url}`)
-  return res.json()
-}
-
-function espnStatusToDb(comp) {
-  const type = comp.status?.type
-  if (!type) return 'upcoming'
-  if (type.completed) return 'finished'
-  if (type.state === 'in') return 'live'
-  return 'upcoming'
-}
-
-async function main() {
-  // ── 1. ESPN standings → team-to-group map ────────────────────────────────
-  console.log('Fetching ESPN standings…')
-  const standings = await espnGet(
-    'https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings?season=2026',
-  )
-  // Map: ESPN display name → group letter ('A'–'L')
-  const espnNameToGroup = new Map()
-  for (const g of standings.children ?? []) {
-    const letter = g.name.replace('Group ', '')
-    for (const entry of g.standings.entries ?? []) {
-      espnNameToGroup.set(entry.team.displayName, letter)
-    }
-  }
-  console.log(`  → ${espnNameToGroup.size} teams across ${standings.children?.length ?? 0} groups`)
-
-  // ── 2. ESPN scoreboard → all 104 fixtures ───────────────────────────────
-  console.log('Fetching all fixtures…')
-  const scoreboard = await espnGet(
-    'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260720&limit=200',
-  )
-  const events = scoreboard.events ?? []
-  console.log(`  → ${events.length} fixtures`)
-
-  // ── 3. Load current teams from Supabase ─────────────────────────────────
-  console.log('Loading teams from Supabase…')
-  const { data: dbTeams, error: teamsErr } = await supabase.from('teams').select('*')
-  if (teamsErr) throw teamsErr
-  console.log(`  → ${dbTeams.length} teams`)
-
-  // name → team object (current DB names)
-  const dbByName = new Map(dbTeams.map(t => [t.name, t]))
-
-  function resolveTeam(espnName) {
-    const dbName = ESPN_TO_DB_NAME[espnName] ?? espnName
-    return dbByName.get(dbName) ?? null
-  }
-
-  // ── 4. Update teams: real group + canonical name ─────────────────────────
-  console.log('\nUpdating team group assignments and names…')
-  let updated = 0, missed = 0
-  for (const [espnName, groupLetter] of espnNameToGroup) {
-    const team = resolveTeam(espnName)
-    if (!team) {
-      console.log(`  ⚠  No DB match for ESPN name: "${espnName}"`)
-      missed++
-      continue
-    }
-    const newName = DB_RENAMES[team.name] ?? team.name
-    const { error } = await supabase
-      .from('teams')
-      .update({ group_label: groupLetter, name: newName })
-      .eq('id', team.id)
-    if (error) throw error
-    const renamed = newName !== team.name
-    const regrouped = team.group_label !== groupLetter
-    if (renamed || regrouped) {
-      const label = renamed ? `${team.name} → ${newName}` : team.name
-      console.log(`  ✓ ${label} → Group ${groupLetter}${!regrouped ? ' (no group change)' : ''}`)
-    }
-    // Keep local map current so fixture resolution below sees the new name
-    if (renamed) dbByName.set(newName, { ...team, name: newName })
-    updated++
-  }
-  console.log(`  ${updated} teams updated, ${missed} unmatched`)
-
-  // ── 5. Replace group-stage matches with real fixtures ───────────────────
-  console.log('\nReplacing group-stage matches…')
-  const { error: delErr } = await supabase.from('matches').delete().eq('stage', 'group')
-  if (delErr) throw delErr
-
-  const groupEvents = events.filter(e => e.season?.slug === 'group-stage')
-  const groupRows = []
-  const skippedFixtures = []
-
-  for (const event of groupEvents) {
-    const comp = event.competitions?.[0]
-    if (!comp) continue
-    const homeComp = comp.competitors?.find(c => c.homeAway === 'home')
-    const awayComp = comp.competitors?.find(c => c.homeAway === 'away')
-    if (!homeComp || !awayComp) continue
-
-    const homeTeam = resolveTeam(homeComp.team.displayName)
-    const awayTeam = resolveTeam(awayComp.team.displayName)
-
-    if (!homeTeam || !awayTeam) {
-      skippedFixtures.push(`${homeComp.team.displayName} vs ${awayComp.team.displayName}`)
-      continue
-    }
-
-    const groupLetter =
-      espnNameToGroup.get(homeComp.team.displayName) ??
-      espnNameToGroup.get(awayComp.team.displayName) ??
-      null
-
-    const dbStatus = espnStatusToDb(comp)
-    const finished = dbStatus === 'finished'
-
-    groupRows.push({
-      stage: 'group',
-      group_label: groupLetter,
-      bracket_slot: null,
-      team_a_id: homeTeam.id,
-      team_b_id: awayTeam.id,
-      score_a: finished ? (parseInt(homeComp.score) ?? null) : null,
-      score_b: finished ? (parseInt(awayComp.score) ?? null) : null,
-      status: dbStatus,
-      kickoff: event.date,
-    })
-  }
-
-  if (skippedFixtures.length)
-    console.log(`  ⚠  Skipped ${skippedFixtures.length} fixtures: ${skippedFixtures.join(', ')}`)
-
-  if (groupRows.length) {
-    const { error: insErr } = await supabase.from('matches').insert(groupRows)
-    if (insErr) throw insErr
-  }
-  console.log(`  ✓ Inserted ${groupRows.length} group-stage fixtures`)
-
-  // ── 6. Update knockout kickoff times ────────────────────────────────────
-  console.log('\nUpdating knockout kickoff times…')
-  const { data: dbKo, error: koErr } = await supabase
-    .from('matches')
-    .select('*')
-    .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
-  if (koErr) throw koErr
-
-  // Group DB knockout matches by stage, sorted by bracket_slot
-  const dbKoByStage = {}
-  for (const m of dbKo) {
-    ;(dbKoByStage[m.stage] ??= []).push(m)
-  }
-  for (const list of Object.values(dbKoByStage)) {
-    list.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
-  }
-
-  // Group ESPN knockout events by stage, sorted chronologically
-  const espnKoByStage = {}
-  for (const event of events) {
-    const stage = SLUG_TO_STAGE[event.season?.slug]
-    if (!stage || stage === 'group') continue
-    ;(espnKoByStage[stage] ??= []).push(event)
-  }
-  for (const list of Object.values(espnKoByStage)) {
-    list.sort((a, b) => new Date(a.date) - new Date(b.date))
-  }
-
-  let koUpdated = 0
-  for (const [stage, espnList] of Object.entries(espnKoByStage)) {
-    const dbList = dbKoByStage[stage] ?? []
-    for (let i = 0; i < Math.min(espnList.length, dbList.length); i++) {
-      const { error } = await supabase
-        .from('matches')
-        .update({ kickoff: espnList[i].date })
-        .eq('id', dbList[i].id)
-      if (error) throw error
-      koUpdated++
-    }
-  }
-  console.log(`  ✓ Updated ${koUpdated} knockout kickoff times`)
 
   console.log('\n✅ Sync complete!')
 }
