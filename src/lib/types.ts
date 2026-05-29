@@ -40,61 +40,10 @@ export interface Tournament {
   third_place_team_id: string | null
   top_scorer_team_id: string | null
   clean_sheet_team_id: string | null
-  // Populated by scripts/sync.js from ESPN match summaries
   top_scorer_name?: string | null
   top_scorer_goals?: number | null
   clean_sheet_gk_name?: string | null
   clean_sheet_count?: number | null
-}
-
-/** Global app config (single row, id = 1). */
-export interface AppConfig {
-  id: number
-  create_passcode: string
-}
-
-// ---- Per-pool ---------------------------------------------------------------
-
-/** A sweepstake "pool". */
-export interface Sweepstake {
-  id: string
-  slug: string
-  name: string
-  admin_passcode: string
-  charity_name: string
-  champion_pct: number
-  runner_up_pct: number
-  third_pct: number
-  top_scorer_pct: number
-  clean_sheet_pct: number
-  created_at?: string
-}
-
-export interface Player {
-  id: string
-  sweepstake_id: string
-  name: string
-  buy_in_aud: number
-  colour: string | null
-  created_at?: string
-}
-
-/** Team → player ownership within one pool (player_id null = The House). */
-export interface Assignment {
-  id: string
-  sweepstake_id: string
-  team_id: string
-  player_id: string | null
-}
-
-/** Convenience: a map of teamId → ownerPlayerId|null for one pool. */
-export type OwnershipMap = Map<string, string | null>
-  id: number
-  champion_team_id: string | null
-  runner_up_team_id: string | null
-  third_place_team_id: string | null
-  top_scorer_team_id: string | null
-  clean_sheet_team_id: string | null
 }
 
 /** Global app config (single row, id = 1). */
