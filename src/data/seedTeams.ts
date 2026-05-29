@@ -37,7 +37,7 @@ export const SEED_TEAMS: SeedTeam[] = [
   { rank: 20, name: 'Austria', flag: '🇦🇹' },
   { rank: 21, name: 'Sweden', flag: '🇸🇪' },
   { rank: 22, name: 'Colombia', flag: '🇨🇴' },
-  { rank: 23, name: 'Turkey', flag: '🇹🇷' },
+  { rank: 23, name: 'Türkiye', flag: '🇹🇷' },
   { rank: 24, name: 'Scotland', flag: '🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}' },
   { rank: 25, name: 'Canada', flag: '🇨🇦' },
   { rank: 26, name: 'Ivory Coast', flag: '🇨🇮' },
