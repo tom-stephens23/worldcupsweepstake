@@ -109,6 +109,14 @@ export function createLocalRepo(): SweepstakeRepo {
       })
     },
 
+    async deletePool(id) {
+      mutate((s) => {
+        s.pools = s.pools.filter((p) => p.id !== id)
+        s.players = s.players.filter((p) => p.sweepstake_id !== id)
+        s.assignments = s.assignments.filter((a) => a.sweepstake_id !== id)
+      })
+    },
+
     async loadPoolData(poolId): Promise<PoolData> {
       const s = read()
       return {

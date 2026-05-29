@@ -63,6 +63,8 @@ export interface SweepstakeRepo {
   getPoolBySlug(slug: string): Promise<Sweepstake | null>
   createPool(pool: NewPool): Promise<Sweepstake>
   updatePool(id: string, patch: Partial<Sweepstake>): Promise<void>
+  /** Delete a pool and (via cascade) its players + assignments. Shared data is untouched. */
+  deletePool(id: string): Promise<void>
 
   // ---- pool-scoped ----
   loadPoolData(poolId: string): Promise<PoolData>

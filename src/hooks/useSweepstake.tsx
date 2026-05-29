@@ -45,6 +45,7 @@ interface SweepstakeApi {
   distribute: () => Promise<void>
   clearAssignments: () => Promise<void>
   updatePool: (patch: Partial<Sweepstake>) => Promise<void>
+  deletePool: () => Promise<void>
 }
 
 const SweepstakeContext = createContext<SweepstakeApi | null>(null)
@@ -198,6 +199,13 @@ export function SweepstakeProvider({ slug, children }: { slug: string; children:
     [repo, pool, app],
   )
 
+  const deletePool = useCallback(async () => {
+    if (!pool) return
+    await repo.deletePool(pool.id)
+    sessionStorage.removeItem(adminKey)
+    await app.refreshShared()
+  }, [repo, pool, adminKey, app])
+
   const value: SweepstakeApi = {
     mode: app.mode,
     loading: app.loading || poolLoading,
@@ -223,6 +231,7 @@ export function SweepstakeProvider({ slug, children }: { slug: string; children:
     distribute,
     clearAssignments,
     updatePool,
+    deletePool,
   }
 
   return <SweepstakeContext.Provider value={value}>{children}</SweepstakeContext.Provider>

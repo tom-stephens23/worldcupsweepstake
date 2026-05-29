@@ -82,6 +82,12 @@ export function createSupabaseRepo(supabase: SupabaseClient): SweepstakeRepo {
       if (error) throw error
     },
 
+    async deletePool(id) {
+      // players + pool_team_assignments cascade-delete via their FKs.
+      const { error } = await supabase.from('sweepstakes').delete().eq('id', id)
+      if (error) throw error
+    },
+
     async loadPoolData(poolId): Promise<PoolData> {
       const [p, a] = await Promise.all([
         supabase.from('players').select('*').eq('sweepstake_id', poolId).order('created_at', { ascending: true }),

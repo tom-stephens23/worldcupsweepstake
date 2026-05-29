@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '../hooks/useApp'
 import { useSweepstake } from '../hooks/useSweepstake'
 import type { Tournament } from '../lib/types'
@@ -35,10 +36,26 @@ const SPLIT_FIELDS = [
 ] as const
 
 export function AdminPanel() {
-  const { adminUnlocked, pool, updatePool } = useSweepstake()
+  const { adminUnlocked, pool, updatePool, deletePool } = useSweepstake()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [charity, setCharity] = useState(pool?.charity_name ?? 'Charity')
+  const [confirmSlug, setConfirmSlug] = useState('')
+  const [deleting, setDeleting] = useState(false)
   if (!adminUnlocked || !pool) return null
+
+  const handleDelete = async () => {
+    if (confirmSlug !== pool.slug) return
+    if (!confirm(`Permanently delete "${pool.name}" and all its players? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await deletePool()
+      navigate('/')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+      setDeleting(false)
+    }
+  }
 
   const splitTotal =
     pool.champion_pct + pool.runner_up_pct + pool.third_pct + pool.top_scorer_pct + pool.clean_sheet_pct
@@ -108,6 +125,35 @@ export function AdminPanel() {
                 onBlur={() => updatePool({ charity_name: charity.trim() || 'Charity' })}
               />
             </label>
+          </div>
+
+          <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 dark:border-red-900/60 dark:bg-red-950/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-red-600">Danger zone</p>
+            <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">
+              Delete this sweepstake and all its players &amp; team assignments. The shared
+              tournament (teams, fixtures, results) and other pools are not affected.{' '}
+              <strong>This cannot be undone.</strong>
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-neutral-500">
+                  Type <code className="rounded bg-neutral-200 px-1 dark:bg-neutral-800">{pool.slug}</code> to confirm
+                </span>
+                <input
+                  className="input"
+                  value={confirmSlug}
+                  onChange={(e) => setConfirmSlug(e.target.value)}
+                  placeholder={pool.slug}
+                />
+              </label>
+              <button
+                className="btn rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={confirmSlug !== pool.slug || deleting}
+                onClick={handleDelete}
+              >
+                {deleting ? 'Deleting…' : 'Delete sweepstake'}
+              </button>
+            </div>
           </div>
         </div>
       )}
