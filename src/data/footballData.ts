@@ -66,7 +66,7 @@ export const TEAM_ODDS: Record<string, string> = {
   Austria: '175/1',
   Sweden: '175/1',
   Colombia: '250/1',
-  Turkey: '250/1',
+  Türkiye: '250/1',
   Scotland: '250/1',
   Canada: '250/1',
   'Ivory Coast': '300/1',
