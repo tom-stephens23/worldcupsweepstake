@@ -1,5 +1,5 @@
 import { useSweepstake } from '../hooks/useSweepstake'
-import { CLEAN_SHEET_LEADER, TOP_SCORER } from '../data/footballData'
+import { useApp } from '../hooks/useApp'
 import { formatAUD, formatPct } from '../lib/format'
 import type { ShareResult } from '../lib/payouts'
 import { Flag } from './ui'
@@ -56,21 +56,21 @@ function BonusCard({
 
 export function BonusCards() {
   const { payouts } = useSweepstake()
+  const { tournament } = useApp()
   const boot = payouts.shares.find((s) => s.key === 'top_scorer')!
   const glove = payouts.shares.find((s) => s.key === 'clean_sheet')!
 
+  const scorerSubtitle = tournament?.top_scorer_name
+    ? `Top scorer: ${tournament.top_scorer_name} (${tournament.top_scorer_goals} goals)`
+    : ''
+  const cleanSheetSubtitle = tournament?.clean_sheet_gk_name
+    ? `Most clean sheets: ${tournament.clean_sheet_gk_name} (${tournament.clean_sheet_count})`
+    : ''
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <BonusCard
-        share={boot}
-        icon="👟"
-        subtitle={`Top scorer: ${TOP_SCORER.player} (${TOP_SCORER.goals} goals)`}
-      />
-      <BonusCard
-        share={glove}
-        icon="🧤"
-        subtitle={`Most clean sheets: ${CLEAN_SHEET_LEADER.goalkeeper} (${CLEAN_SHEET_LEADER.cleanSheets})`}
-      />
+      <BonusCard share={boot} icon="👟" subtitle={scorerSubtitle} />
+      <BonusCard share={glove} icon="🧤" subtitle={cleanSheetSubtitle} />
     </div>
   )
 }
