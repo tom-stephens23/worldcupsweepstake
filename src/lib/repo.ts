@@ -9,6 +9,7 @@ import { createSupabaseRepo } from './supabaseRepo'
 import type {
   AppConfig,
   Assignment,
+  CompetitionType,
   Match,
   Player,
   Sweepstake,
@@ -41,6 +42,7 @@ export interface NewPool {
   slug: string
   name: string
   admin_passcode: string
+  competition_type: CompetitionType
   charity_name: string
   champion_pct: number
   runner_up_pct: number

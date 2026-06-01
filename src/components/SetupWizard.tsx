@@ -1,16 +1,29 @@
 import { useState } from 'react'
 import { useSweepstake } from '../hooks/useSweepstake'
 import { formatAUD } from '../lib/format'
+import { PRIZE_SLOTS } from '../lib/payouts'
 import { Flag } from './ui'
-import type { Player } from '../lib/types'
-
-type Step = 1 | 2
+import type { Player, Sweepstake } from '../lib/types'
 
 export function SetupWizard({ onClose }: { onClose: () => void }) {
-  const { players, pot, addPlayer, updatePlayer, removePlayer, distribute } = useSweepstake()
-  const [step, setStep] = useState<Step>(1)
+  const { pool, players, pot, addPlayer, updatePlayer, removePlayer, updatePool, distribute } = useSweepstake()
+  const professional = pool?.competition_type === 'professional'
+  const totalSteps = professional ? 3 : 2
+  const [step, setStep] = useState(1)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // Step layout — professional: 1 Players · 2 Prizes · 3 Deal teams.
+  //                personal:     1 Players & buy-ins · 2 Deal teams.
+  const isDistributeStep = step === totalSteps
+  const isPrizesStep = professional && step === 2
+  const stepTitle = isDistributeStep
+    ? 'Deal the teams'
+    : isPrizesStep
+      ? 'Prizes'
+      : professional
+        ? 'Players'
+        : 'Players & buy-ins'
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-sm sm:p-6">
@@ -19,7 +32,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
           <div>
             <h2 className="text-lg font-bold">Setup Wizard</h2>
             <p className="text-sm text-neutral-500">
-              Step {step} of 2 · {step === 1 ? 'Players & buy-ins' : 'Deal the teams'}
+              Step {step} of {totalSteps} · {stepTitle}
             </p>
           </div>
           <button className="btn-ghost" onClick={onClose}>
@@ -32,10 +45,11 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
             <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{err}</p>
           )}
 
-          {step === 1 && (
+          {!isDistributeStep && !isPrizesStep && (
             <PlayersStep
               players={players}
               pot={pot}
+              showBuyIn={!professional}
               onAdd={async (name, buyIn) => {
                 setErr(null)
                 try {
@@ -49,7 +63,9 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
             />
           )}
 
-          {step === 2 && (
+          {isPrizesStep && pool && <PrizesStep pool={pool} onUpdate={updatePool} />}
+
+          {isDistributeStep && (
             <DistributeStep
               busy={busy}
               onDistribute={async () => {
@@ -68,16 +84,20 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex items-center justify-between border-t border-neutral-100 p-5 dark:border-neutral-800">
-          <button className="btn-ghost" disabled={step === 1} onClick={() => setStep(1)}>
+          <button className="btn-ghost" disabled={step === 1} onClick={() => setStep((s) => Math.max(1, s - 1))}>
             Back
           </button>
-          {step === 1 ? (
-            <button className="btn-primary" disabled={players.length === 0} onClick={() => setStep(2)}>
-              Next: deal teams
-            </button>
-          ) : (
+          {isDistributeStep ? (
             <button className="btn-primary" onClick={onClose}>
               Done
+            </button>
+          ) : (
+            <button
+              className="btn-primary"
+              disabled={step === 1 && players.length === 0}
+              onClick={() => setStep((s) => Math.min(totalSteps, s + 1))}
+            >
+              {step + 1 === totalSteps ? 'Next: deal teams' : 'Next'}
             </button>
           )}
         </div>
@@ -89,19 +109,21 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
 function PlayersStep({
   players,
   pot,
+  showBuyIn,
   onAdd,
   onUpdate,
   onRemove,
 }: {
   players: Player[]
   pot: number
+  showBuyIn: boolean
   onAdd: (name: string, buyIn: number) => Promise<void>
   onUpdate: ReturnType<typeof useSweepstake>['updatePlayer']
   onRemove: ReturnType<typeof useSweepstake>['removePlayer']
 }) {
   const [name, setName] = useState('')
   const [buyIn, setBuyIn] = useState('50')
-  const canAdd = name.trim().length > 0 && players.length < 48 && Number(buyIn) >= 0
+  const canAdd = name.trim().length > 0 && players.length < 48 && (!showBuyIn || Number(buyIn) >= 0)
 
   return (
     <div>
@@ -110,7 +132,7 @@ function PlayersStep({
         onSubmit={async (e) => {
           e.preventDefault()
           if (!canAdd) return
-          await onAdd(name, Number(buyIn) || 0)
+          await onAdd(name, showBuyIn ? Number(buyIn) || 0 : 0)
           setName('')
         }}
       >
@@ -118,10 +140,12 @@ function PlayersStep({
           <span className="mb-1 block text-xs font-semibold text-neutral-500">Player name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sam" />
         </label>
-        <label className="w-32">
-          <span className="mb-1 block text-xs font-semibold text-neutral-500">Buy-in (AUD)</span>
-          <input className="input" type="number" min={0} step={5} value={buyIn} onChange={(e) => setBuyIn(e.target.value)} />
-        </label>
+        {showBuyIn && (
+          <label className="w-32">
+            <span className="mb-1 block text-xs font-semibold text-neutral-500">Buy-in (AUD)</span>
+            <input className="input" type="number" min={0} step={5} value={buyIn} onChange={(e) => setBuyIn(e.target.value)} />
+          </label>
+        )}
         <button className="btn-primary" type="submit" disabled={!canAdd}>
           Add player
         </button>
@@ -129,9 +153,11 @@ function PlayersStep({
 
       <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-neutral-500">{players.length}/48 players</span>
-        <span className="font-semibold">
-          Running pot: <span className="text-pitch-700 dark:text-pitch-300">{formatAUD(pot)}</span>
-        </span>
+        {showBuyIn && (
+          <span className="font-semibold">
+            Running pot: <span className="text-pitch-700 dark:text-pitch-300">{formatAUD(pot)}</span>
+          </span>
+        )}
       </div>
 
       <ul className="mt-3 divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -143,14 +169,16 @@ function PlayersStep({
               defaultValue={p.name}
               onBlur={(e) => e.target.value.trim() && e.target.value !== p.name && onUpdate(p.id, { name: e.target.value.trim() })}
             />
-            <input
-              className="input w-28"
-              type="number"
-              min={0}
-              step={5}
-              defaultValue={Number(p.buy_in_aud)}
-              onBlur={(e) => Number(e.target.value) !== Number(p.buy_in_aud) && onUpdate(p.id, { buy_in_aud: Number(e.target.value) || 0 })}
-            />
+            {showBuyIn && (
+              <input
+                className="input w-28"
+                type="number"
+                min={0}
+                step={5}
+                defaultValue={Number(p.buy_in_aud)}
+                onBlur={(e) => Number(e.target.value) !== Number(p.buy_in_aud) && onUpdate(p.id, { buy_in_aud: Number(e.target.value) || 0 })}
+              />
+            )}
             <button className="btn-ghost px-3" onClick={() => onRemove(p.id)} title="Remove">
               ✕
             </button>
@@ -159,6 +187,54 @@ function PlayersStep({
         {players.length === 0 && (
           <li className="py-6 text-center text-sm text-neutral-400">Add your first player above.</li>
         )}
+      </ul>
+    </div>
+  )
+}
+
+function PrizesStep({
+  pool,
+  onUpdate,
+}: {
+  pool: Sweepstake
+  onUpdate: ReturnType<typeof useSweepstake>['updatePool']
+}) {
+  return (
+    <div>
+      <p className="text-sm text-neutral-500">
+        Name the prize awarded for each placing. Add an icon or emoji to show alongside it on the home page.
+      </p>
+      <ul className="mt-4 space-y-3">
+        {PRIZE_SLOTS.map((slot) => (
+          <li key={slot.key} className="flex items-end gap-3">
+            <span className="w-24 shrink-0 pb-2 text-sm font-semibold">{slot.label}</span>
+            <label className="w-20">
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Icon</span>
+              <input
+                className="input text-center"
+                maxLength={4}
+                defaultValue={(pool[slot.iconField] as string) ?? ''}
+                placeholder="🎁"
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v !== ((pool[slot.iconField] as string) ?? '')) onUpdate({ [slot.iconField]: v } as Partial<Sweepstake>)
+                }}
+              />
+            </label>
+            <label className="flex-1">
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Prize</span>
+              <input
+                className="input"
+                defaultValue={(pool[slot.nameField] as string) ?? ''}
+                placeholder="e.g. Premium car park for a month"
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v !== ((pool[slot.nameField] as string) ?? '')) onUpdate({ [slot.nameField]: v } as Partial<Sweepstake>)
+                }}
+              />
+            </label>
+          </li>
+        ))}
       </ul>
     </div>
   )

@@ -74,12 +74,26 @@ create table sweepstakes (
   slug text unique not null,
   name text not null,
   admin_passcode text not null default 'worldcup2026',
+  -- 'personal' = money pot (split by %); 'professional' = named prizes (no money).
+  competition_type text not null default 'personal',
   charity_name text not null default 'Charity',
+  -- personal (money) prize splits
   champion_pct    numeric not null default 0.50,
   runner_up_pct   numeric not null default 0.25,
   third_pct       numeric not null default 0.15,
   top_scorer_pct  numeric not null default 0.05,
   clean_sheet_pct numeric not null default 0.05,
+  -- professional (named) prizes: one name + icon per placing
+  champion_prize         text not null default '',
+  champion_prize_icon    text not null default '',
+  runner_up_prize        text not null default '',
+  runner_up_prize_icon   text not null default '',
+  third_prize            text not null default '',
+  third_prize_icon       text not null default '',
+  top_scorer_prize       text not null default '',
+  top_scorer_prize_icon  text not null default '',
+  clean_sheet_prize      text not null default '',
+  clean_sheet_prize_icon text not null default '',
   created_at timestamptz default now()
 );
 create index on sweepstakes (slug);

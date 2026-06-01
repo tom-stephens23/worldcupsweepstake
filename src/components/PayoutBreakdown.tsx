@@ -5,6 +5,48 @@ import { Flag } from './ui'
 export function PayoutBreakdown() {
   const { payouts } = useSweepstake()
 
+  if (payouts.competitionType === 'professional') {
+    return (
+      <div className="card p-5 sm:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="section-title">Prize winners</p>
+          <span className="text-xs text-neutral-400">updates as results come in</span>
+        </div>
+        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {payouts.shares.map((s) => (
+            <li key={s.key} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <span className="text-lg">{s.prizeIcon || '🎁'}</span>
+                  <span>{s.prizeName || <span className="italic text-neutral-400">— not set —</span>}</span>
+                  <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">· {s.label}</span>
+                </div>
+                <div className="truncate text-xs text-neutral-500">
+                  {s.teamName ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Flag emoji={s.teamFlag} /> {s.teamName}
+                    </span>
+                  ) : (
+                    <span className="italic">undecided</span>
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-sm font-bold">
+                {s.recipientType === 'pending' ? (
+                  <span className="text-neutral-300 dark:text-neutral-600">TBD</span>
+                ) : s.recipientType === 'charity' ? (
+                  <span className="text-neutral-500">The House</span>
+                ) : (
+                  <span>{s.recipientName}</span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
   return (
     <div className="card p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between">

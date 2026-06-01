@@ -38,6 +38,30 @@ export function Pot() {
   const { pot, players, payouts } = useSweepstake()
   const animated = useCountUp(pot)
 
+  if (payouts.competitionType === 'professional') {
+    return (
+      <div className="card relative overflow-hidden p-6 sm:p-8">
+        <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-pitch-500/10" />
+        <p className="section-title">The Prizes</p>
+        <ul className="mt-3 space-y-2">
+          {payouts.shares.map((s) => (
+            <li key={s.key} className="flex items-center gap-2 text-sm">
+              <span className="text-xl">{s.prizeIcon || '🎁'}</span>
+              <span className="font-semibold text-neutral-800 dark:text-neutral-100">
+                {s.prizeName || <span className="italic text-neutral-400">— not set —</span>}
+              </span>
+              <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">· {s.label}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-4 text-sm text-neutral-500">
+          <strong className="font-semibold text-neutral-700 dark:text-neutral-200">{players.length}</strong>{' '}
+          {players.length === 1 ? 'player' : 'players'}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="card relative overflow-hidden p-6 sm:p-8">
       <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-pitch-500/10" />

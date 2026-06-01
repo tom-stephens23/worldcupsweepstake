@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { getRepo } from '../lib/repo'
 import { useApp } from './useApp'
-import { calculatePayouts, type PayoutBreakdown, type PrizeSplits } from '../lib/payouts'
+import { calculatePayouts, PRIZE_SLOTS, type PayoutBreakdown, type PrizeMap, type PrizeSplits } from '../lib/payouts'
 import { distributeTeams } from '../lib/distribute'
 import { colourForIndex } from '../lib/format'
 import type { Assignment, OwnershipMap, Player, Sweepstake, Team } from '../lib/types'
@@ -125,8 +125,21 @@ export function SweepstakeProvider({ slug, children }: { slug: string; children:
       }
     : undefined
 
+  const prizes: PrizeMap | undefined = pool
+    ? Object.fromEntries(
+        PRIZE_SLOTS.map((slot) => [
+          slot.key,
+          { name: (pool[slot.nameField] as string) ?? null, icon: (pool[slot.iconField] as string) ?? null },
+        ]),
+      )
+    : undefined
+
   const payouts = useMemo(
-    () => calculatePayouts(players, ownership, app.teams, app.tournament, splits, pool?.charity_name),
+    () =>
+      calculatePayouts(players, ownership, app.teams, app.tournament, splits, pool?.charity_name, {
+        competitionType: pool?.competition_type ?? 'personal',
+        prizes,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [players, ownership, app.teams, app.tournament, pool],
   )

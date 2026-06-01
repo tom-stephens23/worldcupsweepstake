@@ -8,10 +8,12 @@ function BonusCard({
   share,
   icon,
   subtitle,
+  professional,
 }: {
   share: ShareResult
   icon: string
   subtitle: string
+  professional: boolean
 }) {
   const decided = share.recipientType !== 'pending'
   return (
@@ -25,10 +27,19 @@ function BonusCard({
           <p className="text-xs text-neutral-500">{subtitle}</p>
         </div>
         <div className="text-right">
-          <div className="text-xl font-black tracking-tight">{formatAUD(share.amount)}</div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-            {formatPct(share.pct)} of pot
-          </div>
+          {professional ? (
+            <div className="flex items-center justify-end gap-1 text-lg font-black tracking-tight">
+              <span>{share.prizeIcon || '🎁'}</span>
+              <span>{share.prizeName || <span className="italic font-medium text-neutral-400">not set</span>}</span>
+            </div>
+          ) : (
+            <>
+              <div className="text-xl font-black tracking-tight">{formatAUD(share.amount)}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                {formatPct(share.pct)} of pot
+              </div>
+            </>
+          )}
         </div>
       </div>
       <div className="border-t border-neutral-100 pt-3 dark:border-neutral-800">
@@ -40,10 +51,16 @@ function BonusCard({
             </span>
             <span
               className={`text-sm font-medium ${
-                share.recipientType === 'charity' ? 'text-pitch-600' : 'text-neutral-600 dark:text-neutral-300'
+                share.recipientType === 'charity' && !professional
+                  ? 'text-pitch-600'
+                  : 'text-neutral-600 dark:text-neutral-300'
               }`}
             >
-              {share.recipientType === 'charity' ? `→ ${share.recipientName}` : share.recipientName}
+              {share.recipientType === 'charity'
+                ? professional
+                  ? 'The House'
+                  : `→ ${share.recipientName}`
+                : share.recipientName}
             </span>
           </div>
         ) : (
@@ -57,6 +74,7 @@ function BonusCard({
 export function BonusCards() {
   const { payouts } = useSweepstake()
   const { tournament } = useApp()
+  const professional = payouts.competitionType === 'professional'
   const boot = payouts.shares.find((s) => s.key === 'top_scorer')!
   const glove = payouts.shares.find((s) => s.key === 'clean_sheet')!
 
@@ -69,8 +87,8 @@ export function BonusCards() {
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <BonusCard share={boot} icon="👟" subtitle={scorerSubtitle} />
-      <BonusCard share={glove} icon="🧤" subtitle={cleanSheetSubtitle} />
+      <BonusCard share={boot} icon="👟" subtitle={scorerSubtitle} professional={professional} />
+      <BonusCard share={glove} icon="🧤" subtitle={cleanSheetSubtitle} professional={professional} />
     </div>
   )
 }

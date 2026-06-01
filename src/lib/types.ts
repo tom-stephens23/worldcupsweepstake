@@ -54,18 +54,39 @@ export interface AppConfig {
 
 // ---- Per-pool ---------------------------------------------------------------
 
+/**
+ * How a pool awards its prizes:
+ *   • personal      — money-based: buy-ins form a pot, split by percentage.
+ *   • professional  — named prizes (with an icon) for a work setting; no money.
+ */
+export type CompetitionType = 'personal' | 'professional'
+
 /** A sweepstake "pool". */
 export interface Sweepstake {
   id: string
   slug: string
   name: string
   admin_passcode: string
+  // 'personal' for any legacy pool with no value set.
+  competition_type: CompetitionType
   charity_name: string
+  // ---- personal (money) prize splits ----
   champion_pct: number
   runner_up_pct: number
   third_pct: number
   top_scorer_pct: number
   clean_sheet_pct: number
+  // ---- professional (named) prizes: one name + icon per slot ----
+  champion_prize: string
+  champion_prize_icon: string
+  runner_up_prize: string
+  runner_up_prize_icon: string
+  third_prize: string
+  third_prize_icon: string
+  top_scorer_prize: string
+  top_scorer_prize_icon: string
+  clean_sheet_prize: string
+  clean_sheet_prize_icon: string
   created_at?: string
 }
 

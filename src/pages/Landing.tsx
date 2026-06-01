@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../hooks/useApp'
+import type { CompetitionType } from '../lib/types'
 
 function slugify(s: string): string {
   return s
@@ -20,6 +21,7 @@ export function Landing() {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
+  const [competitionType, setCompetitionType] = useState<CompetitionType>('personal')
   const [adminPass, setAdminPass] = useState('')
   const [createPass, setCreatePass] = useState('')
   const [busy, setBusy] = useState(false)
@@ -41,6 +43,7 @@ export function Landing() {
         slug: effectiveSlug,
         name: name.trim(),
         admin_passcode: adminPass,
+        competition_type: competitionType,
         charity_name: 'Charity',
         champion_pct: 0.5,
         runner_up_pct: 0.25,
@@ -48,6 +51,8 @@ export function Landing() {
         top_scorer_pct: 0.05,
         clean_sheet_pct: 0.05,
       })
+      // Land the creator straight into admin so the setup wizard appears.
+      sessionStorage.setItem(`wc2026_admin_${pool.slug}`, '1')
       navigate(`/s/${pool.slug}`)
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : String(e2))
@@ -123,6 +128,36 @@ export function Landing() {
               />
             </div>
           </label>
+          <fieldset className="block">
+            <span className="mb-1 block text-xs font-semibold text-neutral-500">Competition type</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([
+                ['personal', '👪 Personal', 'Money pot — players buy in and prizes pay out as a share of the pot.'],
+                ['professional', '💼 Professional', 'Named prizes (no money) — ideal for a work or office sweepstake.'],
+              ] as const).map(([value, label, desc]) => (
+                <label
+                  key={value}
+                  className={`flex cursor-pointer flex-col rounded-xl border p-3 text-left transition ${
+                    competitionType === value
+                      ? 'border-pitch-500 bg-pitch-50/60 dark:border-pitch-600 dark:bg-pitch-950/30'
+                      : 'border-neutral-300 dark:border-neutral-700'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <input
+                      type="radio"
+                      name="competition_type"
+                      value={value}
+                      checked={competitionType === value}
+                      onChange={() => setCompetitionType(value)}
+                    />
+                    {label}
+                  </span>
+                  <span className="mt-1 text-xs text-neutral-500">{desc}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-semibold text-neutral-500">Admin passcode (for this pool)</span>
@@ -149,7 +184,8 @@ export function Landing() {
             {busy ? 'Creating…' : 'Create sweepstake'}
           </button>
           <p className="text-xs text-neutral-400">
-            You can set the charity and prize splits afterwards in the pool's admin panel.
+            A setup wizard opens after you create the pool to add players and{' '}
+            {competitionType === 'professional' ? 'prizes' : 'buy-ins'}. You can edit everything later in the admin panel.
           </p>
         </form>
       </div>

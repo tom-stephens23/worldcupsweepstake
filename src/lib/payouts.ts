@@ -11,7 +11,7 @@
 // • If the owning entry is null (House team), the share routes to Charity.
 // • If the tournament result isn't decided yet, the share is "pending" / TBD.
 
-import type { OwnershipMap, Player, Team } from './types'
+import type { CompetitionType, OwnershipMap, Player, Sweepstake, Team } from './types'
 
 export type ShareKey = 'champion' | 'runner_up' | 'third_place' | 'top_scorer' | 'clean_sheet'
 
@@ -54,6 +54,33 @@ export const SHARES: ShareDefinition[] = [
   { key: 'clean_sheet', label: 'Golden Glove', pctField: 'clean_sheet_pct', teamField: 'clean_sheet_team_id' },
 ]
 
+/**
+ * Professional-mode prize slots: maps each share to the Sweepstake columns that
+ * hold its named prize + icon. Single source of truth for the setup wizard,
+ * admin panel, and the prizes map fed into `calculatePayouts`.
+ */
+export const PRIZE_SLOTS = [
+  { key: 'champion', label: '1st place', nameField: 'champion_prize', iconField: 'champion_prize_icon' },
+  { key: 'runner_up', label: '2nd place', nameField: 'runner_up_prize', iconField: 'runner_up_prize_icon' },
+  { key: 'third_place', label: '3rd place', nameField: 'third_prize', iconField: 'third_prize_icon' },
+  { key: 'top_scorer', label: 'Golden Boot', nameField: 'top_scorer_prize', iconField: 'top_scorer_prize_icon' },
+  { key: 'clean_sheet', label: 'Golden Glove', nameField: 'clean_sheet_prize', iconField: 'clean_sheet_prize_icon' },
+] as const satisfies readonly {
+  key: ShareKey
+  label: string
+  nameField: keyof Sweepstake
+  iconField: keyof Sweepstake
+}[]
+
+/** Per-slot named prize, keyed by share, for professional pools. */
+export type PrizeMap = Partial<Record<ShareKey, { name: string | null; icon: string | null }>>
+
+export interface PayoutOptions {
+  competitionType?: CompetitionType
+  /** Named prizes per share (professional pools); ignored for personal. */
+  prizes?: PrizeMap
+}
+
 export type RecipientType = 'player' | 'charity' | 'pending'
 
 export interface ShareResult {
@@ -61,6 +88,9 @@ export interface ShareResult {
   label: string
   pct: number
   amount: number
+  /** Professional pools: the named prize + icon for this slot (null otherwise). */
+  prizeName: string | null
+  prizeIcon: string | null
   teamId: string | null
   teamName: string | null
   teamFlag: string | null
@@ -77,6 +107,7 @@ export interface PlayerPayout {
 }
 
 export interface PayoutBreakdown {
+  competitionType: CompetitionType
   pot: number
   playerCount: number
   shares: ShareResult[]
@@ -105,7 +136,9 @@ export function calculatePayouts(
   tournament: TournamentResults | null,
   splits: PrizeSplits = DEFAULT_SPLITS,
   charityName = 'Charity',
+  options: PayoutOptions = {},
 ): PayoutBreakdown {
+  const competitionType: CompetitionType = options.competitionType ?? 'personal'
   const pot = calculatePot(players)
   const charity = charityName?.trim() || 'Charity'
   const teamById = new Map(teams.map((t) => [t.id, t]))
@@ -114,6 +147,7 @@ export function calculatePayouts(
   const shares: ShareResult[] = SHARES.map((def) => {
     const pct = Number(splits[def.pctField]) || 0
     const amount = pot * pct
+    const prize = options.prizes?.[def.key]
     const teamId = tournament ? tournament[def.teamField] : null
     const team = teamId ? teamById.get(teamId) ?? null : null
 
@@ -129,7 +163,8 @@ export function calculatePayouts(
         recipientId = owner.id
         recipientName = owner.name
       } else {
-        // House team (or owner not in this pool) → charity.
+        // House team (or owner not in this pool) → charity (personal) /
+        // The House (professional, surfaced by the UI). Logic is identical.
         recipientType = 'charity'
         recipientName = charity
       }
@@ -140,6 +175,8 @@ export function calculatePayouts(
       label: def.label,
       pct,
       amount,
+      prizeName: prize?.name?.trim() || null,
+      prizeIcon: prize?.icon?.trim() || null,
       teamId: team?.id ?? null,
       teamName: team?.name ?? null,
       teamFlag: team?.flag_emoji ?? null,
@@ -177,6 +214,7 @@ export function calculatePayouts(
   const byPlayer = [...playerMap.values()].sort((a, b) => b.amount - a.amount)
 
   return {
+    competitionType,
     pot,
     playerCount: players.length,
     shares,

@@ -94,7 +94,22 @@ export function createLocalRepo(): SweepstakeRepo {
     },
 
     async createPool(pool: NewPool) {
-      const row: Sweepstake = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...pool }
+      const row: Sweepstake = {
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        // Professional prizes start blank; the admin fills them in the setup wizard.
+        champion_prize: '',
+        champion_prize_icon: '',
+        runner_up_prize: '',
+        runner_up_prize_icon: '',
+        third_prize: '',
+        third_prize_icon: '',
+        top_scorer_prize: '',
+        top_scorer_prize_icon: '',
+        clean_sheet_prize: '',
+        clean_sheet_prize_icon: '',
+        ...pool,
+      }
       mutate((s) => {
         if (s.pools.some((p) => p.slug === row.slug)) throw new Error('That slug is already taken.')
         s.pools.push(row)

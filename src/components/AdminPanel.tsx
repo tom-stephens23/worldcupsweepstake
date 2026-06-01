@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../hooks/useApp'
 import { useSweepstake } from '../hooks/useSweepstake'
-import type { Tournament } from '../lib/types'
+import { PRIZE_SLOTS } from '../lib/payouts'
+import type { Sweepstake, Tournament } from '../lib/types'
 
 type ResultField = keyof Pick<
   Tournament,
@@ -44,6 +45,8 @@ export function AdminPanel() {
   const [deleting, setDeleting] = useState(false)
   if (!adminUnlocked || !pool) return null
 
+  const professional = pool.competition_type === 'professional'
+
   const handleDelete = async () => {
     if (confirmSlug !== pool.slug) return
     if (!confirm(`Permanently delete "${pool.name}" and all its players? This cannot be undone.`)) return
@@ -66,8 +69,8 @@ export function AdminPanel() {
         <div>
           <p className="section-title text-pitch-700 dark:text-pitch-300">Admin · results & prizes</p>
           <p className="text-sm text-neutral-500">
-            Results are <strong>shared across all pools</strong>; prize splits & charity are specific to{' '}
-            <strong>{pool.name}</strong>. The Final & 3rd-place playoff also set results automatically.
+            Results are <strong>shared across all pools</strong>; {professional ? 'prizes' : 'prize splits & charity'} are
+            specific to <strong>{pool.name}</strong>. The Final & 3rd-place playoff also set results automatically.
           </p>
         </div>
         <span className="text-pitch-600">{open ? '▲' : '▼'}</span>
@@ -88,44 +91,84 @@ export function AdminPanel() {
             </div>
           </div>
 
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              This pool — prize split & charity
-            </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              {SPLIT_FIELDS.map(([field, label]) => (
-                <label key={field} className="block">
-                  <span className="mb-1 block text-[11px] font-semibold text-neutral-500">{label}</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={100}
-                      defaultValue={Math.round(pool[field] * 100)}
-                      onBlur={(e) => {
-                        const pct = Math.max(0, Math.min(100, Number(e.target.value))) / 100
-                        if (pct !== pool[field]) updatePool({ [field]: pct })
-                      }}
-                    />
-                    <span className="text-xs text-neutral-400">%</span>
-                  </div>
-                </label>
-              ))}
+          {professional ? (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                This pool — prizes
+              </p>
+              <ul className="space-y-2">
+                {PRIZE_SLOTS.map((slot) => (
+                  <li key={slot.key} className="flex items-end gap-2">
+                    <span className="w-24 shrink-0 pb-2 text-sm font-semibold">{slot.label}</span>
+                    <label className="w-16">
+                      <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Icon</span>
+                      <input
+                        className="input text-center"
+                        maxLength={4}
+                        defaultValue={(pool[slot.iconField] as string) ?? ''}
+                        placeholder="🎁"
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v !== ((pool[slot.iconField] as string) ?? '')) updatePool({ [slot.iconField]: v } as Partial<Sweepstake>)
+                        }}
+                      />
+                    </label>
+                    <label className="flex-1">
+                      <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Prize</span>
+                      <input
+                        className="input"
+                        defaultValue={(pool[slot.nameField] as string) ?? ''}
+                        placeholder="e.g. Premium car park for a month"
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v !== ((pool[slot.nameField] as string) ?? '')) updatePool({ [slot.nameField]: v } as Partial<Sweepstake>)
+                        }}
+                      />
+                    </label>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <p className={`mt-1 text-xs ${Math.abs(splitTotal - 1) < 0.001 ? 'text-neutral-400' : 'text-amber-600'}`}>
-              Splits total {Math.round(splitTotal * 100)}% {Math.abs(splitTotal - 1) < 0.001 ? '' : '(should be 100%)'}
-            </p>
-            <label className="mt-3 block max-w-sm">
-              <span className="mb-1 block text-xs font-semibold text-neutral-500">Charity name</span>
-              <input
-                className="input"
-                value={charity}
-                onChange={(e) => setCharity(e.target.value)}
-                onBlur={() => updatePool({ charity_name: charity.trim() || 'Charity' })}
-              />
-            </label>
-          </div>
+          ) : (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                This pool — prize split & charity
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {SPLIT_FIELDS.map(([field, label]) => (
+                  <label key={field} className="block">
+                    <span className="mb-1 block text-[11px] font-semibold text-neutral-500">{label}</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={100}
+                        defaultValue={Math.round(pool[field] * 100)}
+                        onBlur={(e) => {
+                          const pct = Math.max(0, Math.min(100, Number(e.target.value))) / 100
+                          if (pct !== pool[field]) updatePool({ [field]: pct })
+                        }}
+                      />
+                      <span className="text-xs text-neutral-400">%</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className={`mt-1 text-xs ${Math.abs(splitTotal - 1) < 0.001 ? 'text-neutral-400' : 'text-amber-600'}`}>
+                Splits total {Math.round(splitTotal * 100)}% {Math.abs(splitTotal - 1) < 0.001 ? '' : '(should be 100%)'}
+              </p>
+              <label className="mt-3 block max-w-sm">
+                <span className="mb-1 block text-xs font-semibold text-neutral-500">Charity name</span>
+                <input
+                  className="input"
+                  value={charity}
+                  onChange={(e) => setCharity(e.target.value)}
+                  onBlur={() => updatePool({ charity_name: charity.trim() || 'Charity' })}
+                />
+              </label>
+            </div>
+          )}
 
           <div className="rounded-xl border border-red-200 bg-red-50/60 p-4 dark:border-red-900/60 dark:bg-red-950/20">
             <p className="text-xs font-semibold uppercase tracking-wide text-red-600">Danger zone</p>

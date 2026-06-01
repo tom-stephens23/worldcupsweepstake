@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSweepstake } from '../hooks/useSweepstake'
 import { Pot } from '../components/Pot'
 import { Podium } from '../components/Podium'
@@ -11,8 +11,18 @@ import { AdminPanel } from '../components/AdminPanel'
 import { SetupWizard } from '../components/SetupWizard'
 
 export function Home() {
-  const { adminUnlocked, players } = useSweepstake()
+  const { adminUnlocked, loading, players } = useSweepstake()
   const [wizardOpen, setWizardOpen] = useState(false)
+
+  // On first creation (admin, no players yet) pop the setup wizard automatically.
+  // Only once — re-opening is left to the manual button if the admin closes it.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (!loading && adminUnlocked && players.length === 0 && !autoOpened.current) {
+      autoOpened.current = true
+      setWizardOpen(true)
+    }
+  }, [loading, adminUnlocked, players.length])
 
   return (
     <div className="space-y-6">

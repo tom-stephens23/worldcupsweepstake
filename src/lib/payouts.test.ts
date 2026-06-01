@@ -99,6 +99,38 @@ describe('calculatePayouts', () => {
     expect(total).toBeCloseTo(result.pot)
   })
 
+  it('defaults to the personal competition type with no named prizes', () => {
+    const result = calculatePayouts([player('a', 'A', 100)], own([]), [], tournament(), DEFAULT_SPLITS)
+    expect(result.competitionType).toBe('personal')
+    expect(result.shares.every((s) => s.prizeName === null && s.prizeIcon === null)).toBe(true)
+  })
+
+  it('professional: attaches named prizes + icons and still resolves the winner', () => {
+    const players = [player('alice', 'Alice', 0)]
+    const teams = [team('tc', 'Champ FC')]
+    const ownership = own([['tc', 'alice']])
+    const result = calculatePayouts(
+      players,
+      ownership,
+      teams,
+      tournament({ champion_team_id: 'tc' }),
+      DEFAULT_SPLITS,
+      'Charity',
+      {
+        competitionType: 'professional',
+        prizes: { champion: { name: 'Reserved car park', icon: '🅿️' } },
+      },
+    )
+    expect(result.competitionType).toBe('professional')
+    const champ = result.shares.find((s) => s.key === 'champion')!
+    expect(champ.prizeName).toBe('Reserved car park')
+    expect(champ.prizeIcon).toBe('🅿️')
+    expect(champ.recipientType).toBe('player')
+    expect(champ.recipientName).toBe('Alice')
+    // Slots with no configured prize stay null.
+    expect(result.shares.find((s) => s.key === 'runner_up')!.prizeName).toBeNull()
+  })
+
   it('honours per-pool custom split percentages', () => {
     // Pot = 100, custom: champion 70% / runner-up 30%, rest 0.
     const players = [player('alice', 'Alice', 100)]
