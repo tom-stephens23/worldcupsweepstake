@@ -68,6 +68,40 @@ describe('distributeTeams', () => {
     expect(Object.values(counts).every((c) => c === 6)).toBe(true)
   })
 
+  it('tiers the deal: each player gets exactly one team from each rank band', () => {
+    // Seeded rng so the shuffle is deterministic.
+    let seed = 7
+    const rng = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff
+      return seed / 0x7fffffff
+    }
+    const N = 10
+    const result = distributeTeams(makeTeams(), makePlayers(N), rng)
+    expect(result.teamsPerPlayer).toBe(4) // floor(48/10) = 4 tiers (ranks 1–40)
+
+    // rank of a team id like "t37" is 37.
+    const rankOf = (id: string) => Number(id.slice(1))
+
+    for (const player of makePlayers(N)) {
+      const ranks = Object.entries(result.assignments)
+        .filter(([, owner]) => owner === player)
+        .map(([id]) => rankOf(id))
+        .sort((a, b) => a - b)
+
+      expect(ranks).toHaveLength(4)
+      // Exactly one rank in each tier window: 1–10, 11–20, 21–30, 31–40.
+      for (let tier = 0; tier < 4; tier++) {
+        const lo = tier * N + 1
+        const hi = tier * N + N
+        const inTier = ranks.filter((r) => r >= lo && r <= hi)
+        expect(inTier).toHaveLength(1)
+      }
+    }
+
+    // Bottom 8 (ranks 41–48) still go to The House.
+    expect(result.houseTeamIds.map(rankOf).sort((a, b) => a - b)).toEqual([41, 42, 43, 44, 45, 46, 47, 48])
+  })
+
   it('is reproducible with a seeded rng and only deals top-ranked teams', () => {
     // Deterministic rng so we can assert House = lowest ranks regardless of shuffle.
     let seed = 42

@@ -1,10 +1,13 @@
 // Pure team-distribution logic (unit-tested in distribute.test.ts).
 //
-// Rules (from SPEC):
-//   teamsPerPlayer = floor(48 / numberOfPlayers)
+// Rules (from SPEC) — tiered-random ("partly seeded, partly random"):
+//   teamsPerPlayer = floor(48 / numberOfPlayers)   (= the number of tiers)
 //   teamsToDeal    = numberOfPlayers * teamsPerPlayer
-//   • Take the TOP `teamsToDeal` teams by favourite_rank, shuffle, deal evenly
-//     so each player gets exactly `teamsPerPlayer` teams.
+//   • Split the TOP `teamsToDeal` teams (by favourite_rank) into tiers of
+//     `numberOfPlayers` teams each: ranks 1…N, N+1…2N, 2N+1…3N, …
+//   • Within EACH tier independently, shuffle and hand exactly one team to each
+//     player. So every player gets one team from each strength band — a fair
+//     spread, randomised inside each band.
 //   • The remaining lowest-ranked (48 - teamsToDeal) teams → The House (null).
 //   • numberOfPlayers must be an integer 1–48.
 
@@ -62,11 +65,16 @@ export function distributeTeams(
 
   const assignments: Record<string, string | null> = {}
 
-  // Shuffle the dealable pool, then deal evenly: team k → player (k mod N).
-  const shuffled = shuffle(dealable, rng)
-  shuffled.forEach((team, index) => {
-    assignments[team.id] = playerIds[index % numberOfPlayers]
-  })
+  // Tiered deal: each tier is `numberOfPlayers` consecutive teams by rank.
+  // Shuffle the tier, then give one team to each player — so every player ends
+  // up with exactly one team from each tier (one per strength band).
+  for (let tier = 0; tier < teamsPerPlayer; tier++) {
+    const tierTeams = dealable.slice(tier * numberOfPlayers, (tier + 1) * numberOfPlayers)
+    const shuffled = shuffle(tierTeams, rng)
+    shuffled.forEach((team, index) => {
+      assignments[team.id] = playerIds[index]
+    })
+  }
 
   for (const team of houseTeams) {
     assignments[team.id] = null
