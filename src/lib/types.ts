@@ -30,6 +30,8 @@ export interface Match {
   score_b: number | null
   status: MatchStatus
   kickoff: string | null
+  penalty_a?: number | null
+  penalty_b?: number | null
 }
 
 /** Shared tournament results (single row, id = 1). */
@@ -40,6 +42,7 @@ export interface Tournament {
   third_place_team_id: string | null
   top_scorer_team_id: string | null
   clean_sheet_team_id: string | null
+  // Populated by scripts/sync.js from ESPN match summaries
   top_scorer_name?: string | null
   top_scorer_goals?: number | null
   clean_sheet_gk_name?: string | null
@@ -54,39 +57,18 @@ export interface AppConfig {
 
 // ---- Per-pool ---------------------------------------------------------------
 
-/**
- * How a pool awards its prizes:
- *   • personal      — money-based: buy-ins form a pot, split by percentage.
- *   • professional  — named prizes (with an icon) for a work setting; no money.
- */
-export type CompetitionType = 'personal' | 'professional'
-
 /** A sweepstake "pool". */
 export interface Sweepstake {
   id: string
   slug: string
   name: string
   admin_passcode: string
-  // 'personal' for any legacy pool with no value set.
-  competition_type: CompetitionType
   charity_name: string
-  // ---- personal (money) prize splits ----
   champion_pct: number
   runner_up_pct: number
   third_pct: number
   top_scorer_pct: number
   clean_sheet_pct: number
-  // ---- professional (named) prizes: one name + icon per slot ----
-  champion_prize: string
-  champion_prize_icon: string
-  runner_up_prize: string
-  runner_up_prize_icon: string
-  third_prize: string
-  third_prize_icon: string
-  top_scorer_prize: string
-  top_scorer_prize_icon: string
-  clean_sheet_prize: string
-  clean_sheet_prize_icon: string
   created_at?: string
 }
 
