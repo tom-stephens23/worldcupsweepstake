@@ -25,9 +25,9 @@ describe('generateSeedData', () => {
     expect(finished.every((m) => m.score_a != null && m.score_b != null)).toBe(true)
   })
 
-  it('defaults the Golden Boot / Golden Glove countries on the tournament row', () => {
-    expect(data.tournament.top_scorer_team_id).toBeTruthy()
-    expect(data.tournament.clean_sheet_team_id).toBeTruthy()
+  it('seeds the tournament row (top scorer and clean sheet start null until API populates them)', () => {
+    expect(data.tournament.top_scorer_team_id).toBeNull()
+    expect(data.tournament.clean_sheet_team_id).toBeNull()
   })
 
   it('creates a default pool with full prize splits', () => {
