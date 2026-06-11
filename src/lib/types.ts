@@ -6,6 +6,7 @@
 
 export type Stage = 'group' | 'r32' | 'r16' | 'qf' | 'sf' | 'final' | 'third_place'
 export type MatchStatus = 'upcoming' | 'live' | 'finished'
+export type CompetitionType = 'personal' | 'professional'
 
 // ---- Shared (tournament-wide) ----------------------------------------------
 
@@ -69,6 +70,17 @@ export interface Sweepstake {
   third_pct: number
   top_scorer_pct: number
   clean_sheet_pct: number
+  competition_type?: CompetitionType | null
+  champion_prize?: string | null
+  runner_up_prize?: string | null
+  third_prize?: string | null
+  top_scorer_prize?: string | null
+  clean_sheet_prize?: string | null
+  champion_prize_icon?: string | null
+  runner_up_prize_icon?: string | null
+  third_prize_icon?: string | null
+  top_scorer_prize_icon?: string | null
+  clean_sheet_prize_icon?: string | null
   created_at?: string
 }
 
