@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { getRepo, type NewPool, type SharedData } from '../lib/repo'
 import { computeAllGroupStandings, type GroupTable } from '../lib/standings'
-import { computeR32Qualifiers, loserId, nextSlot, winnerId } from '../lib/bracket'
+import { computeR32Assignments, loserId, nextSlot, winnerId } from '../lib/bracket'
 import type { Match, Stage, Sweepstake, Team, Tournament } from '../lib/types'
 
 interface AppApi {
@@ -37,7 +37,7 @@ interface AppApi {
   createPool: (pool: NewPool) => Promise<Sweepstake>
 
   // shared mutations (results are shared across pools)
-  setMatchScore: (matchId: string, scoreA: number | null, scoreB: number | null) => Promise<void>
+  setMatchScore: (matchId: string, scoreA: number | null, scoreB: number | null, penaltyA?: number | null, penaltyB?: number | null) => Promise<void>
   populateR32FromGroups: () => Promise<void>
   updateTournament: (patch: Partial<Tournament>) => Promise<void>
 }
@@ -120,12 +120,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const setMatchScore = useCallback(
-    async (matchId: string, scoreA: number | null, scoreB: number | null) => {
+    async (matchId: string, scoreA: number | null, scoreB: number | null, penaltyA?: number | null, penaltyB?: number | null) => {
       const match = matches.find((m) => m.id === matchId)
       if (!match) return
       const decided = scoreA != null && scoreB != null
-      const updated: Match = { ...match, score_a: scoreA, score_b: scoreB, status: decided ? 'finished' : 'upcoming' }
-      await repo.updateMatch(matchId, { score_a: scoreA, score_b: scoreB, status: updated.status })
+      const updated: Match = {
+        ...match,
+        score_a: scoreA,
+        score_b: scoreB,
+        penalty_a: penaltyA ?? null,
+        penalty_b: penaltyB ?? null,
+        status: decided ? 'finished' : 'upcoming',
+      }
+      await repo.updateMatch(matchId, {
+        score_a: scoreA,
+        score_b: scoreB,
+        penalty_a: penaltyA ?? null,
+        penalty_b: penaltyB ?? null,
+        status: updated.status,
+      })
 
       if (match.stage !== 'group' && match.bracket_slot != null) {
         const win = winnerId(updated)
@@ -148,14 +161,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const populateR32FromGroups = useCallback(async () => {
-    const qualifiers = computeR32Qualifiers(standings)
+    const assignments = computeR32Assignments(standings)
     const r32 = matches.filter((m) => m.stage === 'r32')
     await Promise.all(
       r32.map((m) => {
         const slot = m.bracket_slot ?? 0
+        const assign = assignments.get(slot)
+        if (!assign) return Promise.resolve()
         return repo.updateMatch(m.id, {
-          team_a_id: qualifiers[slot * 2] ?? null,
-          team_b_id: qualifiers[slot * 2 + 1] ?? null,
+          team_a_id: assign.team_a_id,
+          team_b_id: assign.team_b_id,
         })
       }),
     )
