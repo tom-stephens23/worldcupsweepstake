@@ -220,6 +220,61 @@ async function main() {
   }
   console.log(`  ✓ Updated ${koUpdated} knockout kickoff times`)
 
+  // ── 6b. Update knockout match scores + penalties ─────────────────────────
+  console.log('\nSyncing knockout scores…')
+  const completedKoEvents = events.filter(e => {
+    const slug = e.season?.slug
+    return slug && slug !== 'group-stage' && e.competitions?.[0]?.status?.type?.completed
+  })
+  console.log(`  → ${completedKoEvents.length} completed knockout matches`)
+
+  if (completedKoEvents.length > 0) {
+    // Load all DB knockout matches (need team IDs to match by teams)
+    const { data: dbKoAll, error: koa2Err } = await supabase
+      .from('matches')
+      .select('*')
+      .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
+    if (koa2Err) throw koa2Err
+
+    let koScoreUpdated = 0
+    for (const event of completedKoEvents) {
+      const comp = event.competitions?.[0]
+      if (!comp) continue
+      const homeComp = comp.competitors?.find(c => c.homeAway === 'home')
+      const awayComp = comp.competitors?.find(c => c.homeAway === 'away')
+      if (!homeComp || !awayComp) continue
+
+      const homeTeam = resolveTeam(homeComp.team.displayName)
+      const awayTeam = resolveTeam(awayComp.team.displayName)
+      if (!homeTeam || !awayTeam) continue
+
+      // Find DB match by team IDs (either order)
+      const dbMatch = dbKoAll.find(m =>
+        (m.team_a_id === homeTeam.id && m.team_b_id === awayTeam.id) ||
+        (m.team_a_id === awayTeam.id && m.team_b_id === homeTeam.id)
+      )
+      if (!dbMatch) continue
+
+      const flipped = dbMatch.team_a_id === awayTeam.id
+      const scoreA = parseInt(flipped ? awayComp.score : homeComp.score) || 0
+      const scoreB = parseInt(flipped ? homeComp.score : awayComp.score) || 0
+
+      const hasPens = comp.status.type.description?.includes('Penalt') ||
+        homeComp.shootoutScore != null
+      const penA = hasPens ? (parseInt(flipped ? awayComp.shootoutScore : homeComp.shootoutScore) || null) : null
+      const penB = hasPens ? (parseInt(flipped ? homeComp.shootoutScore : awayComp.shootoutScore) || null) : null
+
+      const { error } = await supabase
+        .from('matches')
+        .update({ score_a: scoreA, score_b: scoreB, penalty_a: penA, penalty_b: penB, status: 'finished' })
+        .eq('id', dbMatch.id)
+      if (error) throw error
+      koScoreUpdated++
+      if (hasPens) console.log(`  ✓ ${homeComp.team.displayName} ${scoreA}(${penA}p) – ${scoreB}(${penB}p) ${awayComp.team.displayName}`)
+    }
+    console.log(`  ✓ Updated scores for ${koScoreUpdated} knockout matches`)
+  }
+
   // ── 7. Aggregate scoring from completed match summaries ─────────────────
   console.log('\nAggregating scoring data…')
   const completedEvents = events.filter(e => e.competitions?.[0]?.status?.type?.completed)
