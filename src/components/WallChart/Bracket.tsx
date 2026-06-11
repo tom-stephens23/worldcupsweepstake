@@ -11,7 +11,30 @@ function TeamRow({ match, side }: { match: Match; side: 'a' | 'b' }) {
   const team = teamById(teamId)
   const owner = ownerOf(teamId)
   const score = side === 'a' ? match.score_a : match.score_b
+  const penScore = side === 'a' ? match.penalty_a : match.penalty_b
   const isWinner = match.status === 'finished' && winnerId(match) === teamId && teamId != null
+  const hasPenalties = match.penalty_a != null && match.penalty_b != null
+
+  const handleScore = (v: number | null) => {
+    const a = side === 'a' ? v : match.score_a
+    const b = side === 'b' ? v : match.score_b
+    setMatchScore(match.id, a, b, match.penalty_a, match.penalty_b)
+  }
+
+  const handlePenalty = (v: number | null) => {
+    const pa = side === 'a' ? v : match.penalty_a
+    const pb = side === 'b' ? v : match.penalty_b
+    setMatchScore(match.id, match.score_a, match.score_b, pa, pb)
+  }
+
+  // Show penalty input only on knockout matches where scores are level
+  const showPenaltyInput =
+    adminUnlocked &&
+    team &&
+    match.stage !== 'group' &&
+    match.score_a != null &&
+    match.score_b != null &&
+    match.score_a === match.score_b
 
   return (
     <div className={`flex items-center gap-2 px-2 py-1.5 ${isWinner ? 'bg-pitch-50 dark:bg-pitch-950/40' : ''}`}>
@@ -25,20 +48,38 @@ function TeamRow({ match, side }: { match: Match; side: 'a' | 'b' }) {
         {team?.name ?? <span className="text-neutral-300 dark:text-neutral-600">—</span>}
       </span>
       {adminUnlocked && team ? (
-        <input
-          className="w-8 rounded border border-neutral-300 bg-white px-1 py-0.5 text-center text-xs tabular-nums dark:border-neutral-700 dark:bg-neutral-950"
-          type="number"
-          min={0}
-          value={score ?? ''}
-          onChange={(e) => {
-            const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value))
-            const a = side === 'a' ? v : match.score_a
-            const b = side === 'b' ? v : match.score_b
-            setMatchScore(match.id, a, b)
-          }}
-        />
+        <div className="flex items-center gap-1">
+          <input
+            className="w-8 rounded border border-neutral-300 bg-white px-1 py-0.5 text-center text-xs tabular-nums dark:border-neutral-700 dark:bg-neutral-950"
+            type="number"
+            min={0}
+            value={score ?? ''}
+            onChange={(e) => handleScore(e.target.value === '' ? null : Math.max(0, Number(e.target.value)))}
+          />
+          {showPenaltyInput && (
+            <>
+              <span className="text-[10px] text-neutral-400">p</span>
+              <input
+                className="w-8 rounded border border-amber-300 bg-white px-1 py-0.5 text-center text-xs tabular-nums dark:border-amber-700 dark:bg-neutral-950"
+                type="number"
+                min={0}
+                placeholder="—"
+                value={penScore ?? ''}
+                onChange={(e) => handlePenalty(e.target.value === '' ? null : Math.max(0, Number(e.target.value)))}
+                title="Penalty shootout score"
+              />
+            </>
+          )}
+        </div>
       ) : (
-        <span className="w-5 text-center text-xs font-bold tabular-nums">{score ?? ''}</span>
+        <div className="flex items-center gap-1">
+          <span className="w-5 text-center text-xs font-bold tabular-nums">{score ?? ''}</span>
+          {hasPenalties && (
+            <span className="text-[10px] font-normal text-neutral-400 tabular-nums">
+              ({penScore}p)
+            </span>
+          )}
+        </div>
       )}
     </div>
   )
