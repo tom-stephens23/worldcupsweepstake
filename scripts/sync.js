@@ -25,7 +25,8 @@ const ESPN_TO_DB_NAME = {
   'Bosnia-Herzegovina': 'Bosnia and Herzegovina',
   'United States': 'USA',
   'Congo DR': 'DR Congo',
-  'Türkiye': 'Turkey', // DB was seeded as 'Turkey'; renamed in DB_RENAMES below
+  'Curaçao': 'Curacao', // ESPN uses accented form; DB has unaccented
+  // Note: 'Türkiye' matches DB directly now (renamed on first sync run)
 }
 
 // DB names to correct to their official canonical form (applied during team update)
