@@ -114,7 +114,7 @@ function RoundColumn({ stage, label }: { stage: Stage; label: string }) {
 
 export function Bracket() {
   const { adminUnlocked } = useSweepstake()
-  const { populateR32FromGroups } = useApp()
+  const { populateR32FromGroups, clearKnockoutTeams } = useApp()
 
   return (
     <div>
@@ -124,9 +124,14 @@ export function Bracket() {
           automatically as scores are entered.
         </p>
         {adminUnlocked && (
-          <button className="btn-ghost shrink-0" onClick={() => populateR32FromGroups()}>
-            ⤵ Fill R32 from groups
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button className="btn-ghost" onClick={() => populateR32FromGroups()}>
+              ⤵ Fill R32 from groups
+            </button>
+            <button className="btn-ghost" onClick={() => clearKnockoutTeams()}>
+              ✕ Clear R32 teams
+            </button>
+          </div>
         )}
       </div>
 
