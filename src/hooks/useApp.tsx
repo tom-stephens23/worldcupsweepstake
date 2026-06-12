@@ -39,6 +39,7 @@ interface AppApi {
   // shared mutations (results are shared across pools)
   setMatchScore: (matchId: string, scoreA: number | null, scoreB: number | null, penaltyA?: number | null, penaltyB?: number | null) => Promise<void>
   populateR32FromGroups: () => Promise<void>
+  clearKnockoutTeams: () => Promise<void>
   updateTournament: (patch: Partial<Tournament>) => Promise<void>
 }
 
@@ -177,6 +178,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadShared()
   }, [repo, standings, matches, loadShared])
 
+  const clearKnockoutTeams = useCallback(async () => {
+    const knockout = matches.filter((m) => m.stage !== 'group')
+    await Promise.all(
+      knockout.map((m) =>
+        repo.updateMatch(m.id, {
+          team_a_id: null,
+          team_b_id: null,
+          score_a: null,
+          score_b: null,
+          penalty_a: null,
+          penalty_b: null,
+          status: 'upcoming',
+        }),
+      ),
+    )
+    await loadShared()
+  }, [repo, matches, loadShared])
+
   const updateTournament = useCallback(
     async (patch: Partial<Tournament>) => {
       await repo.updateTournament(patch)
@@ -215,6 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     createPool,
     setMatchScore,
     populateR32FromGroups,
+    clearKnockoutTeams,
     updateTournament,
   }
 
