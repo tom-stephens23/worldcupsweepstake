@@ -248,13 +248,8 @@ async function main() {
     espnKoByStage[stage].push(event)
   }
 
-  // Sort ESPN matches by date within each stage
-  for (const list of Object.values(espnKoByStage)) {
-    list.sort((a, b) => new Date(a.date) - new Date(b.date))
-  }
-
   let koUpdated = 0
-  const winnerMap = new Map() // Maps completed match ID to winner team ID
+  const winnerMap = new Map() // Maps stage-slot to winner team ID
 
   // Process each stage
   for (const [stageSlug, espnMatches] of Object.entries(espnKoByStage)) {
@@ -263,9 +258,7 @@ async function main() {
       .filter(m => m.stage === stage)
       .sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
 
-    for (let i = 0; i < Math.min(espnMatches.length, dbStageMatches.length); i++) {
-      const espnEvent = espnMatches[i]
-      const dbMatch = dbStageMatches[i]
+    for (const espnEvent of espnMatches) {
       const comp = espnEvent.competitions?.[0]
       if (!comp) continue
 
@@ -276,6 +269,14 @@ async function main() {
       const homeTeam = resolveTeam(homeComp.team.displayName)
       const awayTeam = resolveTeam(awayComp.team.displayName)
       if (!homeTeam || !awayTeam) continue
+
+      // Find the DB match that has these two teams (in any order)
+      const dbMatch = dbStageMatches.find(m =>
+        (m.team_a_id === homeTeam.id && m.team_b_id === awayTeam.id) ||
+        (m.team_a_id === awayTeam.id && m.team_b_id === homeTeam.id) ||
+        (m.team_a_id === null && m.team_b_id === null) // Empty slot, take first available
+      )
+      if (!dbMatch) continue
 
       const dbStatus = espnStatusToDb(comp)
       const finished = dbStatus === 'finished'
@@ -296,7 +297,7 @@ async function main() {
         else if (penA != null && penB != null) {
           winnerId = penA > penB ? homeTeam.id : awayTeam.id
         }
-        if (winnerId) winnerMap.set(`${stage}-${i}`, winnerId)
+        if (winnerId) winnerMap.set(`${stage}-${dbMatch.bracket_slot}`, winnerId)
       }
 
       // Update match in DB
