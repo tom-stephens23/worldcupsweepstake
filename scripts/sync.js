@@ -8,9 +8,10 @@
  * Run: node scripts/sync.js
  *
  * What it updates:
- *   teams   — group_label (real draw) + canonical name (e.g. Turkey → Türkiye)
- *   matches — deletes placeholder group fixtures, inserts real ones with kickoffs;
- *             updates knockout kickoff dates
+ *   teams     — group_label (real draw) + canonical name (e.g. Turkey → Türkiye)
+ *   matches   — group stage: replaces placeholders with real fixtures
+ *             — knockouts: pulls bracket from ESPN, populates teams and scores
+ *             — auto-advances winners to next round as games finish
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -43,6 +44,57 @@ const SLUG_TO_STAGE = {
   'semifinals': 'sf',
   '3rd-place-match': 'third_place',
   'final': 'final',
+}
+
+// Official FIFA bracket advancement paths
+// R32 → R16 (M73–M88 → M89–M96)
+const R32_TO_R16 = {
+  0:  { slot: 1, side: 'a' },
+  1:  { slot: 0, side: 'a' },
+  2:  { slot: 1, side: 'b' },
+  3:  { slot: 2, side: 'a' },
+  4:  { slot: 0, side: 'b' },
+  5:  { slot: 2, side: 'b' },
+  6:  { slot: 3, side: 'a' },
+  7:  { slot: 3, side: 'b' },
+  8:  { slot: 5, side: 'a' },
+  9:  { slot: 5, side: 'b' },
+  10: { slot: 4, side: 'a' },
+  11: { slot: 4, side: 'b' },
+  12: { slot: 7, side: 'a' },
+  13: { slot: 6, side: 'a' },
+  14: { slot: 7, side: 'b' },
+  15: { slot: 6, side: 'b' },
+}
+
+// R16 → QF (M89–M96 → M97–M100)
+const R16_TO_QF = {
+  0: { slot: 0, side: 'a' },
+  1: { slot: 0, side: 'b' },
+  2: { slot: 2, side: 'a' },
+  3: { slot: 2, side: 'b' },
+  4: { slot: 1, side: 'a' },
+  5: { slot: 1, side: 'b' },
+  6: { slot: 3, side: 'a' },
+  7: { slot: 3, side: 'b' },
+}
+
+// Get the next round slot and side for a winner
+function getNextSlot(stage, slot) {
+  if (stage === 'r32') {
+    return R32_TO_R16[slot] ? { stage: 'r16', ...R32_TO_R16[slot] } : null
+  }
+  if (stage === 'r16') {
+    return R16_TO_QF[slot] ? { stage: 'qf', ...R16_TO_QF[slot] } : null
+  }
+  // For QF, SF: simple binary tree
+  if (stage === 'qf') {
+    return { stage: 'sf', slot: Math.floor(slot / 2), side: slot % 2 === 0 ? 'a' : 'b' }
+  }
+  if (stage === 'sf') {
+    return { stage: 'final', slot: 0, side: 'a' }
+  }
+  return null
 }
 
 async function espnGet(url) {
@@ -179,68 +231,44 @@ async function main() {
   }
   console.log(`  ✓ Inserted ${groupRows.length} group-stage fixtures`)
 
-  // ── 6. Update knockout kickoff times ────────────────────────────────────
-  console.log('\nUpdating knockout kickoff times…')
-  const { data: dbKo, error: koErr } = await supabase
+  // ── 6. Sync knockout brackets from ESPN ────────────────────────────────
+  console.log('\nSyncing knockout brackets…')
+  const { data: dbMatches, error: dbErr } = await supabase
     .from('matches')
     .select('*')
     .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
-  if (koErr) throw koErr
+  if (dbErr) throw dbErr
 
-  // Group DB knockout matches by stage, sorted by bracket_slot
-  const dbKoByStage = {}
-  for (const m of dbKo) {
-    ;(dbKoByStage[m.stage] ??= []).push(m)
-  }
-  for (const list of Object.values(dbKoByStage)) {
-    list.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
-  }
-
-  // Group ESPN knockout events by stage, sorted chronologically
+  // Map stage slugs to stages
   const espnKoByStage = {}
   for (const event of events) {
     const stage = SLUG_TO_STAGE[event.season?.slug]
     if (!stage || stage === 'group') continue
-    ;(espnKoByStage[stage] ??= []).push(event)
+    if (!espnKoByStage[stage]) espnKoByStage[stage] = []
+    espnKoByStage[stage].push(event)
   }
+
+  // Sort ESPN matches by date within each stage
   for (const list of Object.values(espnKoByStage)) {
     list.sort((a, b) => new Date(a.date) - new Date(b.date))
   }
 
   let koUpdated = 0
-  for (const [stage, espnList] of Object.entries(espnKoByStage)) {
-    const dbList = dbKoByStage[stage] ?? []
-    for (let i = 0; i < Math.min(espnList.length, dbList.length); i++) {
-      const { error } = await supabase
-        .from('matches')
-        .update({ kickoff: espnList[i].date })
-        .eq('id', dbList[i].id)
-      if (error) throw error
-      koUpdated++
-    }
-  }
-  console.log(`  ✓ Updated ${koUpdated} knockout kickoff times`)
+  const winnerMap = new Map() // Maps completed match ID to winner team ID
 
-  // ── 6b. Update knockout match scores + penalties ─────────────────────────
-  console.log('\nSyncing knockout scores…')
-  const completedKoEvents = events.filter(e => {
-    const slug = e.season?.slug
-    return slug && slug !== 'group-stage' && e.competitions?.[0]?.status?.type?.completed
-  })
-  console.log(`  → ${completedKoEvents.length} completed knockout matches`)
+  // Process each stage
+  for (const [stageSlug, espnMatches] of Object.entries(espnKoByStage)) {
+    const stage = SLUG_TO_STAGE[stageSlug]
+    const dbStageMatches = dbMatches
+      .filter(m => m.stage === stage)
+      .sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
 
-  if (completedKoEvents.length > 0) {
-    // Load all DB knockout matches (need team IDs to match by teams)
-    const { data: dbKoAll, error: koa2Err } = await supabase
-      .from('matches')
-      .select('*')
-      .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
-    if (koa2Err) throw koa2Err
-
-    let koScoreUpdated = 0
-    for (const event of completedKoEvents) {
-      const comp = event.competitions?.[0]
+    for (let i = 0; i < Math.min(espnMatches.length, dbStageMatches.length); i++) {
+      const espnEvent = espnMatches[i]
+      const dbMatch = dbStageMatches[i]
+      const comp = espnEvent.competitions?.[0]
       if (!comp) continue
+
       const homeComp = comp.competitors?.find(c => c.homeAway === 'home')
       const awayComp = comp.competitors?.find(c => c.homeAway === 'away')
       if (!homeComp || !awayComp) continue
@@ -249,32 +277,72 @@ async function main() {
       const awayTeam = resolveTeam(awayComp.team.displayName)
       if (!homeTeam || !awayTeam) continue
 
-      // Find DB match by team IDs (either order)
-      const dbMatch = dbKoAll.find(m =>
-        (m.team_a_id === homeTeam.id && m.team_b_id === awayTeam.id) ||
-        (m.team_a_id === awayTeam.id && m.team_b_id === homeTeam.id)
-      )
-      if (!dbMatch) continue
+      const dbStatus = espnStatusToDb(comp)
+      const finished = dbStatus === 'finished'
 
-      const flipped = dbMatch.team_a_id === awayTeam.id
-      const scoreA = parseInt(flipped ? awayComp.score : homeComp.score) || 0
-      const scoreB = parseInt(flipped ? homeComp.score : awayComp.score) || 0
+      const scoreA = finished ? (parseInt(homeComp.score) ?? null) : null
+      const scoreB = finished ? (parseInt(awayComp.score) ?? null) : null
 
       const hasPens = comp.status.type.description?.includes('Penalt') ||
         homeComp.shootoutScore != null
-      const penA = hasPens ? (parseInt(flipped ? awayComp.shootoutScore : homeComp.shootoutScore) || null) : null
-      const penB = hasPens ? (parseInt(flipped ? homeComp.shootoutScore : awayComp.shootoutScore) || null) : null
+      const penA = hasPens ? (parseInt(homeComp.shootoutScore) || null) : null
+      const penB = hasPens ? (parseInt(awayComp.shootoutScore) || null) : null
 
+      // Determine winner for downstream advancement
+      let winnerId = null
+      if (finished) {
+        if (scoreA > scoreB) winnerId = homeTeam.id
+        else if (scoreB > scoreA) winnerId = awayTeam.id
+        else if (penA != null && penB != null) {
+          winnerId = penA > penB ? homeTeam.id : awayTeam.id
+        }
+        if (winnerId) winnerMap.set(`${stage}-${i}`, winnerId)
+      }
+
+      // Update match in DB
       const { error } = await supabase
         .from('matches')
-        .update({ score_a: scoreA, score_b: scoreB, penalty_a: penA, penalty_b: penB, status: 'finished' })
+        .update({
+          team_a_id: homeTeam.id,
+          team_b_id: awayTeam.id,
+          score_a: scoreA,
+          score_b: scoreB,
+          penalty_a: penA,
+          penalty_b: penB,
+          status: dbStatus,
+          kickoff: espnEvent.date,
+        })
         .eq('id', dbMatch.id)
       if (error) throw error
-      koScoreUpdated++
-      if (hasPens) console.log(`  ✓ ${homeComp.team.displayName} ${scoreA}(${penA}p) – ${scoreB}(${penB}p) ${awayComp.team.displayName}`)
+      koUpdated++
     }
-    console.log(`  ✓ Updated scores for ${koScoreUpdated} knockout matches`)
   }
+
+  console.log(`  ✓ Synced ${koUpdated} knockout matches`)
+
+  // ── 6b. Advance winners to next round ────────────────────────────────────
+  console.log('\nAdvancing winners to next round…')
+
+  let advanced = 0
+  for (const [matchKey, winnerId] of winnerMap) {
+    const [stage, slotStr] = matchKey.split('-')
+    const slot = parseInt(slotStr)
+    const nextInfo = getNextSlot(stage, slot)
+    if (!nextInfo) continue
+
+    const nextMatch = dbMatches.find(m => m.stage === nextInfo.stage && m.bracket_slot === nextInfo.slot)
+    if (!nextMatch) continue
+
+    const updateKey = nextInfo.side === 'a' ? 'team_a_id' : 'team_b_id'
+    const { error } = await supabase
+      .from('matches')
+      .update({ [updateKey]: winnerId })
+      .eq('id', nextMatch.id)
+    if (error) throw error
+    advanced++
+  }
+
+  if (advanced > 0) console.log(`  ✓ Advanced ${advanced} winners to next round`)
 
   // ── 7. Aggregate scoring from completed match summaries ─────────────────
   console.log('\nAggregating scoring data…')
@@ -321,19 +389,33 @@ async function main() {
           else playerGoals.set(player, { teamEspnName: teamName, goals: 1 })
         }
 
-        // Clean sheets — GK goalsConceded === 0 for that match
-        for (const teamData of summary.leaders ?? []) {
-          const teamName = teamData.team?.displayName
-          if (!teamName) continue
-          const saves = teamData.leaders?.find(l => l.name === 'saves')
-          const gk = saves?.leaders?.[0]
-          if (!gk) continue
-          const conceded = gk.statistics?.find(s => s.name === 'goalsConceded')?.value
-          if (conceded === 0) {
-            const gkName = gk.athlete?.displayName
-            const entry = teamCleanSheets.get(teamName)
-            if (entry) entry.count++
-            else teamCleanSheets.set(teamName, { count: 1, gkName })
+        // Clean sheets — check if GK's team conceded 0 goals
+        const comp = event.competitions?.[0]
+        if (comp) {
+          const homeComp = comp.competitors?.find(c => c.homeAway === 'home')
+          const awayComp = comp.competitors?.find(c => c.homeAway === 'away')
+          const homeScore = parseInt(homeComp?.score) || 0
+          const awayScore = parseInt(awayComp?.score) || 0
+
+          for (const teamData of summary.leaders ?? []) {
+            const teamName = teamData.team?.displayName
+            if (!teamName) continue
+            const saves = teamData.leaders?.find(l => l.name === 'saves')
+            const gk = saves?.leaders?.[0]
+            if (!gk) continue
+
+            // Determine if this team is home or away and how many goals they conceded
+            const isHome = homeComp?.team?.displayName === teamName
+            const isAway = awayComp?.team?.displayName === teamName
+            if (!isHome && !isAway) continue
+
+            const goalsAgainst = isHome ? awayScore : homeScore
+            if (goalsAgainst === 0) {
+              const gkName = gk.athlete?.displayName
+              const entry = teamCleanSheets.get(teamName)
+              if (entry) entry.count++
+              else teamCleanSheets.set(teamName, { count: 1, gkName })
+            }
           }
         }
       } catch (err) {
