@@ -46,62 +46,26 @@ const SLUG_TO_STAGE = {
   'final': 'final',
 }
 
-// Map ESPN match numbers to bracket slot positions
-// R32 bracket display order: M74, M77, M73, M75, M83, M84, M81, M82, M76, M78, M79, M80, M86, M88, M85, M87
-const ESPN_MATCH_TO_R32_SLOT = {
-  73: 2,   // M73 → slot 2
-  74: 0,   // M74 → slot 0
-  75: 3,   // M75 → slot 3
-  76: 8,   // M76 → slot 8
-  77: 1,   // M77 → slot 1
-  78: 9,   // M78 → slot 9
-  79: 10,  // M79 → slot 10
-  80: 11,  // M80 → slot 11
-  81: 6,   // M81 → slot 6
-  82: 7,   // M82 → slot 7
-  83: 4,   // M83 → slot 4
-  84: 5,   // M84 → slot 5
-  85: 14,  // M85 → slot 14
-  86: 12,  // M86 → slot 12
-  87: 15,  // M87 → slot 15
-  88: 13,  // M88 → slot 13
-}
-
-// R16 bracket display order: M89, M90, M93, M94, M91, M92, M95, M96
-const ESPN_MATCH_TO_R16_SLOT = {
-  89: 0,   // M89 → slot 0
-  90: 1,   // M90 → slot 1
-  91: 4,   // M91 → slot 4
-  92: 5,   // M92 → slot 5
-  93: 2,   // M93 → slot 2
-  94: 3,   // M94 → slot 3
-  95: 6,   // M95 → slot 6
-  96: 7,   // M96 → slot 7
-}
-
-// QF bracket display order: M97, M98, M99, M100
-const ESPN_MATCH_TO_QF_SLOT = {
-  97: 0,
-  98: 1,
-  99: 2,
-  100: 3,
-}
-
-// SF bracket display order: M101, M102
-const ESPN_MATCH_TO_SF_SLOT = {
-  101: 0,
-  102: 1,
-}
-
-// F: M103
-const ESPN_MATCH_TO_FINAL_SLOT = {
-  103: 0,
-}
-
-// Third place: M104
-const ESPN_MATCH_TO_THIRD_SLOT = {
-  104: 0,
-}
+// Official R32 bracket structure (team pairs in bracket order)
+// Each slot contains [team_a_name, team_b_name] as they should appear
+const R32_BRACKET_STRUCTURE = [
+  ['Germany', 'Paraguay'],           // Slot 0
+  ['France', 'Sweden'],              // Slot 1
+  ['South Africa', 'Canada'],        // Slot 2
+  ['Netherlands', 'Morocco'],        // Slot 3
+  ['Portugal', 'Croatia'],           // Slot 4
+  ['Spain', 'Austria'],              // Slot 5
+  ['USA', 'Bosnia and Herzegovina'], // Slot 6
+  ['Belgium', 'Senegal'],            // Slot 7
+  ['Brazil', 'Japan'],               // Slot 8
+  ['Ivory Coast', 'Norway'],         // Slot 9
+  ['Mexico', 'Ecuador'],             // Slot 10
+  ['England', 'DR Congo'],           // Slot 11
+  ['Argentina', 'Cape Verde'],       // Slot 12
+  ['Australia', 'Egypt'],            // Slot 13
+  ['Switzerland', 'Algeria'],        // Slot 14
+  ['Colombia', 'Ghana'],             // Slot 15
+]
 
 // Official FIFA bracket advancement paths (using correct slot ordering)
 const R32_TO_R16 = {
@@ -295,33 +259,87 @@ async function main() {
     .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
   if (dbErr) throw dbErr
 
-  // Map ESPN events by stage
-  const espnByStage = {}
-  for (const event of events) {
-    const stage = SLUG_TO_STAGE[event.season?.slug]
-    if (!stage || stage === 'group') continue
-    if (!espnByStage[stage]) espnByStage[stage] = []
-    espnByStage[stage].push(event)
-  }
-
   let koUpdated = 0
   const winnerMap = new Map() // Maps stage-slot to winner team ID
 
-  // Process each stage with correct slot mapping
-  const stageSlotMaps = {
-    r32: ESPN_MATCH_TO_R32_SLOT,
-    r16: ESPN_MATCH_TO_R16_SLOT,
-    qf: ESPN_MATCH_TO_QF_SLOT,
-    sf: ESPN_MATCH_TO_SF_SLOT,
-    final: ESPN_MATCH_TO_FINAL_SLOT,
-    third_place: ESPN_MATCH_TO_THIRD_SLOT,
+  // ── 6a. Sync R32 using official bracket structure ────────────────────────
+  console.log('  Syncing R32…')
+  const r32Events = events.filter(e => e.season?.slug === 'round-of-32')
+  for (const espnEvent of r32Events) {
+    const comp = espnEvent.competitions?.[0]
+    if (!comp) continue
+
+    const homeComp = comp.competitors?.find(c => c.homeAway === 'home')
+    const awayComp = comp.competitors?.find(c => c.homeAway === 'away')
+    if (!homeComp || !awayComp) continue
+
+    const homeTeam = resolveTeam(homeComp.team.displayName)
+    const awayTeam = resolveTeam(awayComp.team.displayName)
+    if (!homeTeam || !awayTeam) continue
+
+    // Find which R32 slot these teams belong in
+    let bracketSlot = -1
+    for (let i = 0; i < R32_BRACKET_STRUCTURE.length; i++) {
+      const [teamA, teamB] = R32_BRACKET_STRUCTURE[i]
+      if ((homeTeam.name === teamA && awayTeam.name === teamB) ||
+          (homeTeam.name === teamB && awayTeam.name === teamA)) {
+        bracketSlot = i
+        break
+      }
+    }
+    if (bracketSlot === -1) continue
+
+    const dbMatch = dbMatches.find(m => m.stage === 'r32' && m.bracket_slot === bracketSlot)
+    if (!dbMatch) continue
+
+    const dbStatus = espnStatusToDb(comp)
+    const finished = dbStatus === 'finished'
+
+    const scoreA = finished ? (parseInt(homeComp.score) ?? null) : null
+    const scoreB = finished ? (parseInt(awayComp.score) ?? null) : null
+
+    const hasPens = comp.status.type.description?.includes('Penalt') ||
+      homeComp.shootoutScore != null
+    const penA = hasPens ? (parseInt(homeComp.shootoutScore) || null) : null
+    const penB = hasPens ? (parseInt(awayComp.shootoutScore) || null) : null
+
+    let winnerId = null
+    if (finished) {
+      if (scoreA > scoreB) winnerId = homeTeam.id
+      else if (scoreB > scoreA) winnerId = awayTeam.id
+      else if (penA != null && penB != null) {
+        winnerId = penA > penB ? homeTeam.id : awayTeam.id
+      }
+      if (winnerId) winnerMap.set(`r32-${bracketSlot}`, winnerId)
+    }
+
+    const { error } = await supabase
+      .from('matches')
+      .update({
+        team_a_id: homeTeam.id,
+        team_b_id: awayTeam.id,
+        score_a: scoreA,
+        score_b: scoreB,
+        penalty_a: penA,
+        penalty_b: penB,
+        status: dbStatus,
+        kickoff: espnEvent.date,
+      })
+      .eq('id', dbMatch.id)
+    if (error) throw error
+    koUpdated++
   }
 
-  for (const [stage, espnEvents] of Object.entries(espnByStage)) {
-    const slotMap = stageSlotMaps[stage]
-    if (!slotMap) continue
+  // ── 6b. Sync other knockout stages (R16, QF, SF, Final) ─────────────────
+  console.log('  Syncing R16+…')
+  const otherKoStages = ['r16', 'qf', 'sf', 'final', 'third_place']
+  for (const stage of otherKoStages) {
+    const stageEvents = events.filter(e => SLUG_TO_STAGE[e.season?.slug] === stage)
+    const dbStageMatches = dbMatches.filter(m => m.stage === stage).sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
 
-    for (const espnEvent of espnEvents) {
+    for (let i = 0; i < Math.min(stageEvents.length, dbStageMatches.length); i++) {
+      const espnEvent = stageEvents[i]
+      const dbMatch = dbStageMatches[i]
       const comp = espnEvent.competitions?.[0]
       if (!comp) continue
 
@@ -332,15 +350,6 @@ async function main() {
       const homeTeam = resolveTeam(homeComp.team.displayName)
       const awayTeam = resolveTeam(awayComp.team.displayName)
       if (!homeTeam || !awayTeam) continue
-
-      // Extract match number from ESPN event (M73, M74, etc.)
-      const matchNum = espnEvent.id
-      const bracketSlot = slotMap[matchNum]
-      if (bracketSlot === undefined) continue
-
-      // Find the DB match at this stage and slot
-      const dbMatch = dbMatches.find(m => m.stage === stage && m.bracket_slot === bracketSlot)
-      if (!dbMatch) continue
 
       const dbStatus = espnStatusToDb(comp)
       const finished = dbStatus === 'finished'
@@ -353,7 +362,6 @@ async function main() {
       const penA = hasPens ? (parseInt(homeComp.shootoutScore) || null) : null
       const penB = hasPens ? (parseInt(awayComp.shootoutScore) || null) : null
 
-      // Determine winner for downstream advancement
       let winnerId = null
       if (finished) {
         if (scoreA > scoreB) winnerId = homeTeam.id
@@ -361,10 +369,9 @@ async function main() {
         else if (penA != null && penB != null) {
           winnerId = penA > penB ? homeTeam.id : awayTeam.id
         }
-        if (winnerId) winnerMap.set(`${stage}-${bracketSlot}`, winnerId)
+        if (winnerId) winnerMap.set(`${stage}-${dbMatch.bracket_slot}`, winnerId)
       }
 
-      // Update match in DB
       const { error } = await supabase
         .from('matches')
         .update({
