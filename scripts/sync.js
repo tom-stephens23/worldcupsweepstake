@@ -46,37 +46,93 @@ const SLUG_TO_STAGE = {
   'final': 'final',
 }
 
-// Official FIFA bracket advancement paths
-// R32 → R16 (M73–M88 → M89–M96)
-const R32_TO_R16 = {
-  0:  { slot: 1, side: 'a' },
-  1:  { slot: 0, side: 'a' },
-  2:  { slot: 1, side: 'b' },
-  3:  { slot: 2, side: 'a' },
-  4:  { slot: 0, side: 'b' },
-  5:  { slot: 2, side: 'b' },
-  6:  { slot: 3, side: 'a' },
-  7:  { slot: 3, side: 'b' },
-  8:  { slot: 5, side: 'a' },
-  9:  { slot: 5, side: 'b' },
-  10: { slot: 4, side: 'a' },
-  11: { slot: 4, side: 'b' },
-  12: { slot: 7, side: 'a' },
-  13: { slot: 6, side: 'a' },
-  14: { slot: 7, side: 'b' },
-  15: { slot: 6, side: 'b' },
+// Map ESPN match numbers to bracket slot positions
+// R32 bracket display order: M74, M77, M73, M75, M83, M84, M81, M82, M76, M78, M79, M80, M86, M88, M85, M87
+const ESPN_MATCH_TO_R32_SLOT = {
+  73: 2,   // M73 → slot 2
+  74: 0,   // M74 → slot 0
+  75: 3,   // M75 → slot 3
+  76: 8,   // M76 → slot 8
+  77: 1,   // M77 → slot 1
+  78: 9,   // M78 → slot 9
+  79: 10,  // M79 → slot 10
+  80: 11,  // M80 → slot 11
+  81: 6,   // M81 → slot 6
+  82: 7,   // M82 → slot 7
+  83: 4,   // M83 → slot 4
+  84: 5,   // M84 → slot 5
+  85: 14,  // M85 → slot 14
+  86: 12,  // M86 → slot 12
+  87: 15,  // M87 → slot 15
+  88: 13,  // M88 → slot 13
 }
 
-// R16 → QF (M89–M96 → M97–M100)
+// R16 bracket display order: M89, M90, M93, M94, M91, M92, M95, M96
+const ESPN_MATCH_TO_R16_SLOT = {
+  89: 0,   // M89 → slot 0
+  90: 1,   // M90 → slot 1
+  91: 4,   // M91 → slot 4
+  92: 5,   // M92 → slot 5
+  93: 2,   // M93 → slot 2
+  94: 3,   // M94 → slot 3
+  95: 6,   // M95 → slot 6
+  96: 7,   // M96 → slot 7
+}
+
+// QF bracket display order: M97, M98, M99, M100
+const ESPN_MATCH_TO_QF_SLOT = {
+  97: 0,
+  98: 1,
+  99: 2,
+  100: 3,
+}
+
+// SF bracket display order: M101, M102
+const ESPN_MATCH_TO_SF_SLOT = {
+  101: 0,
+  102: 1,
+}
+
+// F: M103
+const ESPN_MATCH_TO_FINAL_SLOT = {
+  103: 0,
+}
+
+// Third place: M104
+const ESPN_MATCH_TO_THIRD_SLOT = {
+  104: 0,
+}
+
+// Official FIFA bracket advancement paths (using correct slot ordering)
+const R32_TO_R16 = {
+  0: { slot: 0, side: 'a' },   // M74 (slot 0) → M89 (slot 0) side A
+  1: { slot: 1, side: 'a' },   // M77 (slot 1) → M90 (slot 1) side A
+  2: { slot: 2, side: 'a' },   // M73 (slot 2) → M93 (slot 2) side A
+  3: { slot: 3, side: 'a' },   // M75 (slot 3) → M94 (slot 3) side A
+  4: { slot: 4, side: 'a' },   // M83 (slot 4) → M91 (slot 4) side A
+  5: { slot: 5, side: 'a' },   // M84 (slot 5) → M92 (slot 5) side A
+  6: { slot: 6, side: 'a' },   // M81 (slot 6) → M95 (slot 6) side A
+  7: { slot: 7, side: 'a' },   // M82 (slot 7) → M96 (slot 7) side A
+  8: { slot: 0, side: 'b' },   // M76 (slot 8) → M89 (slot 0) side B
+  9: { slot: 1, side: 'b' },   // M78 (slot 9) → M90 (slot 1) side B
+  10: { slot: 2, side: 'b' },  // M79 (slot 10) → M93 (slot 2) side B
+  11: { slot: 3, side: 'b' },  // M80 (slot 11) → M94 (slot 3) side B
+  12: { slot: 4, side: 'b' },  // M86 (slot 12) → M91 (slot 4) side B
+  13: { slot: 5, side: 'b' },  // M88 (slot 13) → M92 (slot 5) side B
+  14: { slot: 6, side: 'b' },  // M85 (slot 14) → M95 (slot 6) side B
+  15: { slot: 7, side: 'b' },  // M87 (slot 15) → M96 (slot 7) side B
+}
+
+// R16 → QF (using correct slot ordering)
 const R16_TO_QF = {
-  0: { slot: 0, side: 'a' },
-  1: { slot: 0, side: 'b' },
-  2: { slot: 2, side: 'a' },
-  3: { slot: 2, side: 'b' },
-  4: { slot: 1, side: 'a' },
-  5: { slot: 1, side: 'b' },
-  6: { slot: 3, side: 'a' },
-  7: { slot: 3, side: 'b' },
+  0: { slot: 0, side: 'a' },   // M89 (slot 0) → M97 (slot 0) side A
+  1: { slot: 1, side: 'a' },   // M90 (slot 1) → M98 (slot 1) side A
+  2: { slot: 2, side: 'a' },   // M93 (slot 2) → M99 (slot 2) side A
+  3: { slot: 3, side: 'a' },   // M94 (slot 3) → M100 (slot 3) side A
+  4: { slot: 0, side: 'b' },   // M91 (slot 4) → M97 (slot 0) side B
+  5: { slot: 1, side: 'b' },   // M92 (slot 5) → M98 (slot 1) side B
+  6: { slot: 2, side: 'b' },   // M95 (slot 6) → M99 (slot 2) side B
+  7: { slot: 3, side: 'b' },   // M96 (slot 7) → M100 (slot 3) side B
 }
 
 // Get the next round slot and side for a winner
@@ -239,26 +295,33 @@ async function main() {
     .in('stage', ['r32', 'r16', 'qf', 'sf', 'final', 'third_place'])
   if (dbErr) throw dbErr
 
-  // Map stage slugs to stages
-  const espnKoByStage = {}
+  // Map ESPN events by stage
+  const espnByStage = {}
   for (const event of events) {
     const stage = SLUG_TO_STAGE[event.season?.slug]
     if (!stage || stage === 'group') continue
-    if (!espnKoByStage[stage]) espnKoByStage[stage] = []
-    espnKoByStage[stage].push(event)
+    if (!espnByStage[stage]) espnByStage[stage] = []
+    espnByStage[stage].push(event)
   }
 
   let koUpdated = 0
   const winnerMap = new Map() // Maps stage-slot to winner team ID
 
-  // Process each stage
-  for (const [stageSlug, espnMatches] of Object.entries(espnKoByStage)) {
-    const stage = SLUG_TO_STAGE[stageSlug]
-    const dbStageMatches = dbMatches
-      .filter(m => m.stage === stage)
-      .sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
+  // Process each stage with correct slot mapping
+  const stageSlotMaps = {
+    r32: ESPN_MATCH_TO_R32_SLOT,
+    r16: ESPN_MATCH_TO_R16_SLOT,
+    qf: ESPN_MATCH_TO_QF_SLOT,
+    sf: ESPN_MATCH_TO_SF_SLOT,
+    final: ESPN_MATCH_TO_FINAL_SLOT,
+    third_place: ESPN_MATCH_TO_THIRD_SLOT,
+  }
 
-    for (const espnEvent of espnMatches) {
+  for (const [stage, espnEvents] of Object.entries(espnByStage)) {
+    const slotMap = stageSlotMaps[stage]
+    if (!slotMap) continue
+
+    for (const espnEvent of espnEvents) {
       const comp = espnEvent.competitions?.[0]
       if (!comp) continue
 
@@ -270,12 +333,13 @@ async function main() {
       const awayTeam = resolveTeam(awayComp.team.displayName)
       if (!homeTeam || !awayTeam) continue
 
-      // Find the DB match that has these two teams (in any order)
-      const dbMatch = dbStageMatches.find(m =>
-        (m.team_a_id === homeTeam.id && m.team_b_id === awayTeam.id) ||
-        (m.team_a_id === awayTeam.id && m.team_b_id === homeTeam.id) ||
-        (m.team_a_id === null && m.team_b_id === null) // Empty slot, take first available
-      )
+      // Extract match number from ESPN event (M73, M74, etc.)
+      const matchNum = espnEvent.id
+      const bracketSlot = slotMap[matchNum]
+      if (bracketSlot === undefined) continue
+
+      // Find the DB match at this stage and slot
+      const dbMatch = dbMatches.find(m => m.stage === stage && m.bracket_slot === bracketSlot)
       if (!dbMatch) continue
 
       const dbStatus = espnStatusToDb(comp)
@@ -297,7 +361,7 @@ async function main() {
         else if (penA != null && penB != null) {
           winnerId = penA > penB ? homeTeam.id : awayTeam.id
         }
-        if (winnerId) winnerMap.set(`${stage}-${dbMatch.bracket_slot}`, winnerId)
+        if (winnerId) winnerMap.set(`${stage}-${bracketSlot}`, winnerId)
       }
 
       // Update match in DB
