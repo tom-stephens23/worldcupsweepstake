@@ -76,9 +76,9 @@ export function PlayersGrid() {
           return (
             <div key={player.id} className={`card overflow-hidden ${allTeamsKnockedOut ? 'bg-neutral-100 dark:bg-neutral-800' : ''}`}>
               <div className="h-1.5 w-full" style={{ backgroundColor: colour }} />
-              <div className={`p-4 ${allTeamsKnockedOut ? 'relative flex flex-col items-center justify-center min-h-48' : ''}`}>
+              <div className="relative p-4">
                 {allTeamsKnockedOut && (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <span className="text-6xl">💀</span>
                   </div>
                 )}
