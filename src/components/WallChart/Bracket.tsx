@@ -44,9 +44,10 @@ function TeamRow({ match, side }: { match: Match; side: 'a' | 'b' }) {
         title={owner ? owner.name : team ? 'The House' : ''}
       />
       <Flag emoji={team?.flag_emoji} />
-      <span className={`flex-1 truncate text-xs ${isWinner ? 'font-bold' : 'font-medium'}`}>
-        {team?.name ?? <span className="text-neutral-300 dark:text-neutral-600">—</span>}
-      </span>
+      <div className={`flex-1 truncate text-xs ${isWinner ? 'font-bold' : 'font-medium'}`}>
+        <div>{team?.name ?? <span className="text-neutral-300 dark:text-neutral-600">—</span>}</div>
+        {owner && <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{owner.name}</div>}
+      </div>
       {adminUnlocked && team ? (
         <div className="flex items-center gap-1">
           <input
