@@ -68,35 +68,36 @@ const R32_BRACKET_STRUCTURE = [
 ]
 
 // Official FIFA bracket advancement paths (using correct slot ordering)
+// Consecutive R32 slots meet in R16: slots 0-1 → R16 slot 0, slots 2-3 → R16 slot 1, etc.
 const R32_TO_R16 = {
-  0: { slot: 0, side: 'a' },   // M74 (slot 0) → M89 (slot 0) side A
-  1: { slot: 1, side: 'a' },   // M77 (slot 1) → M90 (slot 1) side A
-  2: { slot: 2, side: 'a' },   // M73 (slot 2) → M93 (slot 2) side A
-  3: { slot: 3, side: 'a' },   // M75 (slot 3) → M94 (slot 3) side A
-  4: { slot: 4, side: 'a' },   // M83 (slot 4) → M91 (slot 4) side A
-  5: { slot: 5, side: 'a' },   // M84 (slot 5) → M92 (slot 5) side A
-  6: { slot: 6, side: 'a' },   // M81 (slot 6) → M95 (slot 6) side A
-  7: { slot: 7, side: 'a' },   // M82 (slot 7) → M96 (slot 7) side A
-  8: { slot: 0, side: 'b' },   // M76 (slot 8) → M89 (slot 0) side B
-  9: { slot: 1, side: 'b' },   // M78 (slot 9) → M90 (slot 1) side B
-  10: { slot: 2, side: 'b' },  // M79 (slot 10) → M93 (slot 2) side B
-  11: { slot: 3, side: 'b' },  // M80 (slot 11) → M94 (slot 3) side B
-  12: { slot: 4, side: 'b' },  // M86 (slot 12) → M91 (slot 4) side B
-  13: { slot: 5, side: 'b' },  // M88 (slot 13) → M92 (slot 5) side B
-  14: { slot: 6, side: 'b' },  // M85 (slot 14) → M95 (slot 6) side B
-  15: { slot: 7, side: 'b' },  // M87 (slot 15) → M96 (slot 7) side B
+  0: { slot: 0, side: 'a' },   // Slot 0 → R16 slot 0 side A
+  1: { slot: 0, side: 'b' },   // Slot 1 → R16 slot 0 side B (faces slot 0 winner)
+  2: { slot: 1, side: 'a' },   // Slot 2 → R16 slot 1 side A
+  3: { slot: 1, side: 'b' },   // Slot 3 → R16 slot 1 side B (faces slot 2 winner)
+  4: { slot: 2, side: 'a' },   // Slot 4 → R16 slot 2 side A
+  5: { slot: 2, side: 'b' },   // Slot 5 → R16 slot 2 side B (faces slot 4 winner)
+  6: { slot: 3, side: 'a' },   // Slot 6 → R16 slot 3 side A
+  7: { slot: 3, side: 'b' },   // Slot 7 → R16 slot 3 side B (faces slot 6 winner)
+  8: { slot: 4, side: 'a' },   // Slot 8 → R16 slot 4 side A
+  9: { slot: 4, side: 'b' },   // Slot 9 → R16 slot 4 side B (faces slot 8 winner)
+  10: { slot: 5, side: 'a' },  // Slot 10 → R16 slot 5 side A
+  11: { slot: 5, side: 'b' },  // Slot 11 → R16 slot 5 side B (faces slot 10 winner)
+  12: { slot: 6, side: 'a' },  // Slot 12 → R16 slot 6 side A
+  13: { slot: 6, side: 'b' },  // Slot 13 → R16 slot 6 side B (faces slot 12 winner)
+  14: { slot: 7, side: 'a' },  // Slot 14 → R16 slot 7 side A
+  15: { slot: 7, side: 'b' },  // Slot 15 → R16 slot 7 side B (faces slot 14 winner)
 }
 
-// R16 → QF (using correct slot ordering)
+// R16 → QF (consecutive slots meet)
 const R16_TO_QF = {
-  0: { slot: 0, side: 'a' },   // M89 (slot 0) → M97 (slot 0) side A
-  1: { slot: 1, side: 'a' },   // M90 (slot 1) → M98 (slot 1) side A
-  2: { slot: 2, side: 'a' },   // M93 (slot 2) → M99 (slot 2) side A
-  3: { slot: 3, side: 'a' },   // M94 (slot 3) → M100 (slot 3) side A
-  4: { slot: 0, side: 'b' },   // M91 (slot 4) → M97 (slot 0) side B
-  5: { slot: 1, side: 'b' },   // M92 (slot 5) → M98 (slot 1) side B
-  6: { slot: 2, side: 'b' },   // M95 (slot 6) → M99 (slot 2) side B
-  7: { slot: 3, side: 'b' },   // M96 (slot 7) → M100 (slot 3) side B
+  0: { slot: 0, side: 'a' },   // Slot 0 → QF slot 0 side A
+  1: { slot: 0, side: 'b' },   // Slot 1 → QF slot 0 side B (faces slot 0 winner)
+  2: { slot: 1, side: 'a' },   // Slot 2 → QF slot 1 side A
+  3: { slot: 1, side: 'b' },   // Slot 3 → QF slot 1 side B (faces slot 2 winner)
+  4: { slot: 2, side: 'a' },   // Slot 4 → QF slot 2 side A
+  5: { slot: 2, side: 'b' },   // Slot 5 → QF slot 2 side B (faces slot 4 winner)
+  6: { slot: 3, side: 'a' },   // Slot 6 → QF slot 3 side A
+  7: { slot: 3, side: 'b' },   // Slot 7 → QF slot 3 side B (faces slot 6 winner)
 }
 
 // Get the next round slot and side for a winner
@@ -253,6 +254,15 @@ async function main() {
 
   // ── 6. Sync knockout brackets from ESPN ────────────────────────────────
   console.log('\nSyncing knockout brackets…')
+
+  // Clear R16+ brackets first (keep R32 as is, only update it)
+  console.log('  Clearing R16+ brackets…')
+  const { error: clearErr } = await supabase
+    .from('matches')
+    .update({ team_a_id: null, team_b_id: null, score_a: null, score_b: null, status: 'upcoming' })
+    .in('stage', ['r16', 'qf', 'sf', 'final', 'third_place'])
+  if (clearErr) throw clearErr
+
   const { data: dbMatches, error: dbErr } = await supabase
     .from('matches')
     .select('*')
