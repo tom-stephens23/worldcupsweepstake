@@ -1,0 +1,26 @@
+name: Sync World Cup Data
+
+on:
+  schedule:
+    # 6am Sydney (8pm UTC previous day)
+    - cron: '0 20 * * *'
+    # 9am Sydney (11pm UTC previous day)
+    - cron: '0 23 * * *'
+    # 1pm Sydney (3am UTC)
+    - cron: '0 3 * * *'
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm install
+
+      - run: node scripts/sync.js
