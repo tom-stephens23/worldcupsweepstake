@@ -340,16 +340,14 @@ async function main() {
     koUpdated++
   }
 
-  // ── 6b. Sync other knockout stages (R16, QF, SF, Final) ─────────────────
-  console.log('  Syncing R16+…')
+  // ── 6b. Update R16+ match scores (only for matches that already have teams) ─────────────────
+  console.log('  Syncing R16+ scores…')
   const otherKoStages = ['r16', 'qf', 'sf', 'final', 'third_place']
   for (const stage of otherKoStages) {
     const stageEvents = events.filter(e => SLUG_TO_STAGE[e.season?.slug] === stage)
-    const dbStageMatches = dbMatches.filter(m => m.stage === stage).sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
+    const dbStageMatches = dbMatches.filter(m => m.stage === stage)
 
-    for (let i = 0; i < Math.min(stageEvents.length, dbStageMatches.length); i++) {
-      const espnEvent = stageEvents[i]
-      const dbMatch = dbStageMatches[i]
+    for (const espnEvent of stageEvents) {
       const comp = espnEvent.competitions?.[0]
       if (!comp) continue
 
@@ -360,6 +358,13 @@ async function main() {
       const homeTeam = resolveTeam(homeComp.team.displayName)
       const awayTeam = resolveTeam(awayComp.team.displayName)
       if (!homeTeam || !awayTeam) continue
+
+      // Find DB match that has these two teams already assigned
+      const dbMatch = dbStageMatches.find(m =>
+        (m.team_a_id === homeTeam.id && m.team_b_id === awayTeam.id) ||
+        (m.team_a_id === awayTeam.id && m.team_b_id === homeTeam.id)
+      )
+      if (!dbMatch) continue
 
       const dbStatus = espnStatusToDb(comp)
       const finished = dbStatus === 'finished'
@@ -385,8 +390,6 @@ async function main() {
       const { error } = await supabase
         .from('matches')
         .update({
-          team_a_id: homeTeam.id,
-          team_b_id: awayTeam.id,
           score_a: scoreA,
           score_b: scoreB,
           penalty_a: penA,
